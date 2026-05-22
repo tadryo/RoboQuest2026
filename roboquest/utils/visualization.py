@@ -5,6 +5,12 @@ MuJoCo 公式チュートリアル準拠の方式で動画を Colab 内に表示
 参考: https://colab.research.google.com/github/google-deepmind/mujoco/blob/main/python/tutorial.ipynb
 """
 import os
+
+# Google Colab などヘッドレス環境では EGL オフスクリーンレンダリングを使用する。
+# MUJOCO_GL は mujoco を import する前に設定しなければならない。
+if "MUJOCO_GL" not in os.environ:
+    os.environ["MUJOCO_GL"] = "egl"
+
 from typing import Optional, List
 
 import mujoco
