@@ -1,61 +1,79 @@
 """
-報酬関数の設定クラスとプリセット
+報酬関数の設定クラス
 
-Tier1 のスライダーパラメータがそのままこのクラスのフィールドに対応する。
+WalkRewardConfig : 歩行事前学習用（unitree_rl_mjlab 参考）
+FleeRewardConfig : 階層学習の高レベルポリシー（鬼ごっこ）用
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
-class RewardConfig:
-    """逃げロボット用の報酬重みを管理するクラス。
+class WalkRewardConfig:
+    """Go2 歩行の報酬重み（unitree_rl_mjlab の velocity task 準拠）。
 
-    各フィールドが Tier1 のスライダーパラメータに対応。
+    高校生向けに調整可能なパラメータを選別:
+    - 速度追跡の重みを上げると、より速く歩くことを優先
+    - 姿勢の重みを上げると、安定した歩行を優先
     """
-    # 鬼から離れるほど高い報酬
-    distance_weight: float = 1.0
+    # ── 速度追跡（主目標） ─────────────────────────────────────────────
+    # コマンド速度への追従（Gaussian 報酬: exp(-error/std)）
+    lin_vel_weight: float = 1.0    # 線速度追跡の重み
+    ang_vel_weight: float = 0.5    # 角速度追跡の重み
 
-    # 転倒・タグされずに生き延びる毎ステップのボーナス
-    survival_weight: float = 0.1
+    # ── 安定性ペナルティ ───────────────────────────────────────────────
+    # 重力ベクトルの傾き（xy 成分の二乗和）
+    orientation_weight: float = -1.0
 
-    # 制御量の二乗和ペナルティ（省エネ・滑らかな動き）
-    control_weight: float = 0.05
+    # ── エネルギー効率ペナルティ ───────────────────────────────────────
+    # トルクの二乗和（省エネ）
+    torques_weight: float = -2.5e-5
+    # アクション変化の二乗和（滑らかな動き）
+    action_rate_weight: float = -0.05
 
-    # 前進速度に対する報酬（直線的な逃げを促進）
-    forward_weight: float = 0.5
+    # ── 歩行品質ペナルティ ─────────────────────────────────────────────
+    # 接触中の足水平速度（スリップ防止）
+    foot_slip_weight: float = -0.1
 
-    # 転倒時のペナルティ（エピソード終了時に引かれる）
+    # ── 終了ペナルティ ─────────────────────────────────────────────────
     fall_penalty: float = 10.0
 
+
+@dataclass
+class FleeRewardConfig:
+    """鬼ごっこ（高レベルポリシー）用報酬。
+
+    Tier1 のスライダーパラメータがこのクラスに対応。
+    """
+    # 毎ステップの生存ボーナス（生き延びることへの報酬）
+    survival_weight: float = 0.5
+
+    # 鬼との距離に比例した逃げ報酬
+    distance_weight: float = 1.0
+
     # タグされた（鬼に捕まった）時のペナルティ
-    tag_penalty: float = 20.0
+    tag_penalty: float = 50.0
 
-    # アリーナ境界への接近ペナルティ
-    boundary_penalty: float = 5.0
-
-
-# --- プリセット ---
-
-def make_aggressive_config() -> RewardConfig:
-    """逃げることを最優先する設定（リスクを顧みず距離を稼ぐ）"""
-    return RewardConfig(
-        distance_weight=3.0,
-        survival_weight=0.05,
-        control_weight=0.01,
-        forward_weight=1.5,
-    )
+    # 転倒時のペナルティ
+    fall_penalty: float = 20.0
 
 
-def make_balanced_config() -> RewardConfig:
-    """デフォルトの均衡設定"""
-    return RewardConfig()
+# ── プリセット ──────────────────────────────────────────────────────────────
+
+def make_fast_walker() -> WalkRewardConfig:
+    """速さ優先（速度追跡を強化）"""
+    return WalkRewardConfig(lin_vel_weight=2.0, ang_vel_weight=0.5)
 
 
-def make_efficient_config() -> RewardConfig:
-    """エネルギー効率優先（スタミナ型・長期生存重視）"""
-    return RewardConfig(
-        distance_weight=0.8,
-        survival_weight=0.5,
-        control_weight=0.3,
-        forward_weight=0.3,
-    )
+def make_stable_walker() -> WalkRewardConfig:
+    """安定優先（姿勢ペナルティを強化）"""
+    return WalkRewardConfig(orientation_weight=-2.0, torques_weight=-5e-5)
+
+
+def make_aggressive_flee() -> FleeRewardConfig:
+    """距離優先（リスクを顧みずに距離を稼ぐ）"""
+    return FleeRewardConfig(distance_weight=3.0, survival_weight=0.2)
+
+
+def make_survival_flee() -> FleeRewardConfig:
+    """生存優先（じっくり逃げ続ける）"""
+    return FleeRewardConfig(survival_weight=2.0, distance_weight=0.5)
