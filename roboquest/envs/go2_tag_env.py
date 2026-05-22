@@ -6,8 +6,11 @@
 
 観測空間: 49 + 3 = 52次元（基本観測 + 鬼への相対位置 xy + 距離）
 """
-from typing import Optional, Tuple
 import os
+# ヘッドレス環境（Google Colab など）向け: mujoco import 前に EGL を指定
+if "MUJOCO_GL" not in os.environ:
+    os.environ["MUJOCO_GL"] = "egl"
+from typing import Optional, Tuple
 
 import mujoco
 import numpy as np
