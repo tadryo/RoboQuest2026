@@ -35,5 +35,10 @@ best/
 # Claude Code 設定（ローカル専用）
 .claude/
 
+# Web viewer — mujoco_wasm バイナリは setup_wasm.sh でダウンロード
+webapp/dist/
+# エクスポート済みポリシー（チームごと）
+webapp/models/
+
 # 一時ファイル
 /tmp/

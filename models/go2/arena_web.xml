@@ -1,0 +1,44 @@
+<!-- Web viewer arena: uses go2_simple.xml (no OBJ meshes) for browser compatibility.
+     Identical arena layout to arena.xml but safe to load in mujoco_wasm. -->
+<mujoco model="go2_arena_web">
+  <include file="go2_simple.xml"/>
+
+  <statistic center="0 0 0.3" extent="4"/>
+
+  <worldbody>
+    <!-- 5m×5m フロア -->
+    <geom name="floor" type="plane" size="2.5 2.5 0.1"
+      contype="1" conaffinity="1" friction="0.8 0.1 0.1"/>
+
+    <!-- 北壁 y=+2.5 -->
+    <geom name="wall_n" type="box" pos="0  2.55 0.5" size="2.6 0.05 0.5"
+      contype="1" conaffinity="1"/>
+    <!-- 南壁 y=-2.5 -->
+    <geom name="wall_s" type="box" pos="0 -2.55 0.5" size="2.6 0.05 0.5"
+      contype="1" conaffinity="1"/>
+    <!-- 東壁 x=+2.5 -->
+    <geom name="wall_e" type="box" pos=" 2.55 0 0.5" size="0.05 2.6 0.5"
+      contype="1" conaffinity="1"/>
+    <!-- 西壁 x=-2.5 -->
+    <geom name="wall_w" type="box" pos="-2.55 0 0.5" size="0.05 2.6 0.5"
+      contype="1" conaffinity="1"/>
+
+    <!-- 鬼（赤い球）: slide 関節で移動
+         qpos[19]=oni_x, qpos[20]=oni_y -->
+    <body name="oni" pos="0 0 0.3">
+      <joint name="oni_x" type="slide" axis="1 0 0"
+        limited="true" range="-2.4 2.4" damping="100" frictionloss="0"/>
+      <joint name="oni_y" type="slide" axis="0 1 0"
+        limited="true" range="-2.4 2.4" damping="100" frictionloss="0"/>
+      <geom name="oni_body" type="sphere" size="0.28"
+        contype="0" conaffinity="0" mass="0.001"/>
+    </body>
+  </worldbody>
+
+  <!-- Keyframe: robot home pose + oni at origin -->
+  <keyframe>
+    <key name="home"
+      qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0"
+      ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8" />
+  </keyframe>
+</mujoco>

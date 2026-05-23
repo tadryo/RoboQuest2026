@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RoboQuest 2026 – インタラクティブビューアー</title>
+
+  <!-- Three.js r160 via CDN (ES module importmap) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d0d14;
+      color: #e8e8f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #161622;
+      border-bottom: 1px solid #2a2a40;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; color: #a0c0ff; }
+    header .badge {
+      background: #2a3a6a; color: #8ab0ff;
+      padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;
+    }
+    #status-bar {
+      margin-left: auto;
+      font-size: 0.8rem;
+      color: #888;
+    }
+    #status-bar span { color: #a0c0ff; }
+
+    /* ── Main layout ── */
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Canvas ── */
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      background: #111118;
+    }
+    #canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(13,13,20,0.92);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 10;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #2a2a40;
+      border-top-color: #4080ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-msg { font-size: 0.9rem; color: #8899bb; }
+    #loading-progress { font-size: 0.75rem; color: #556; }
+
+    /* ── Side Panel ── */
+    .side-panel {
+      width: 240px;
+      background: #13131f;
+      border-left: 1px solid #2a2a40;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .panel-section {
+      padding: 12px;
+      border-bottom: 1px solid #1e1e30;
+    }
+    .panel-section h3 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #4466aa;
+      margin-bottom: 10px;
+    }
+
+    /* ── Stats ── */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 0.82rem;
+    }
+    .stat-label { color: #778; }
+    .stat-val { font-weight: 600; color: #c0d8ff; font-variant-numeric: tabular-nums; }
+    .stat-val.danger { color: #ff6060; }
+    .stat-val.good { color: #60e060; }
+
+    /* ── Progress bar ── */
+    .progress-wrap {
+      background: #1e1e30;
+      border-radius: 4px;
+      height: 6px;
+      margin-top: 4px;
+      overflow: hidden;
+    }
+    #time-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #4080ff, #40c0ff);
+      transition: width 0.2s;
+      border-radius: 4px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      width: 100%;
+      padding: 8px 0;
+      border: 1px solid #2a3a5a;
+      border-radius: 6px;
+      background: #1a2440;
+      color: #a0c0ff;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s, border-color 0.15s;
+      margin-bottom: 6px;
+    }
+    .btn:hover { background: #22305a; border-color: #4060aa; }
+    .btn:active { background: #182038; }
+    .btn.primary {
+      background: #1e4080;
+      border-color: #4080ff;
+      color: #c0d8ff;
+      font-weight: 600;
+    }
+    .btn.primary:hover { background: #2a52a0; }
+    .btn.danger { background: #401420; border-color: #a04060; color: #ffa0b0; }
+    .btn.danger:hover { background: #501828; }
+    .btn-row { display: flex; gap: 6px; }
+    .btn-row .btn { flex: 1; }
+
+    /* ── Sliders ── */
+    .slider-row {
+      margin-bottom: 8px;
+    }
+    .slider-row label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: #889;
+      margin-bottom: 3px;
+    }
+    .slider-row label span { color: #aac; font-weight: 600; }
+    input[type=range] {
+      width: 100%;
+      accent-color: #4080ff;
+    }
+
+    /* ── WASD pad ── */
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .dpad-btn {
+      padding: 8px 0;
+      background: #1a2440;
+      border: 1px solid #2a3a5a;
+      border-radius: 5px;
+      color: #a0c0ff;
+      cursor: pointer;
+      font-size: 0.9rem;
+      text-align: center;
+      user-select: none;
+      transition: background 0.1s;
+    }
+    .dpad-btn:active, .dpad-btn.pressed {
+      background: #2a4070;
+    }
+    .dpad-btn.center { grid-column: 2; }
+    .dpad-space { grid-column: 1 / -1; }
+
+    /* ── Model upload ── */
+    #model-file-input { display: none; }
+    .model-status {
+      font-size: 0.75rem;
+      color: #556;
+      margin-top: 4px;
+      text-align: center;
+    }
+    .model-status.loaded { color: #60c060; }
+
+    /* ── View toggle ── */
+    .view-btns { display: flex; gap: 4px; }
+    .view-btn {
+      flex: 1;
+      padding: 5px;
+      background: #13131f;
+      border: 1px solid #2a2a40;
+      border-radius: 4px;
+      color: #556;
+      cursor: pointer;
+      font-size: 0.75rem;
+      text-align: center;
+      transition: all 0.15s;
+    }
+    .view-btn.active {
+      background: #1a2a4a;
+      border-color: #3a6aaa;
+      color: #8ab0ff;
+    }
+
+    /* ── Tag outcome ── */
+    #tag-flash {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0;
+      background: rgba(255, 60, 60, 0.35);
+      transition: opacity 0.15s;
+      z-index: 5;
+    }
+    #result-banner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(13,13,20,0.95);
+      border: 2px solid #4080ff;
+      border-radius: 12px;
+      padding: 24px 36px;
+      text-align: center;
+      font-size: 1.6rem;
+      font-weight: 700;
+      display: none;
+      z-index: 20;
+    }
+    #result-banner.show { display: block; }
+    #result-banner .sub { font-size: 0.9rem; color: #8899bb; margin-top: 8px; font-weight: 400; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🐾 RoboQuest 2026</h1>
+  <span class="badge">ライブビューアー</span>
+  <div id="status-bar">FPS: <span id="fps">--</span> &nbsp;|&nbsp; 物理: <span id="phys-status">初期化中…</span></div>
+</header>
+
+<div class="main">
+  <!-- ── Canvas ── -->
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div id="loading-overlay">
+      <div class="spinner"></div>
+      <div id="loading-msg">MuJoCo WASM を読み込み中…</div>
+      <div id="loading-progress"></div>
+    </div>
+    <div id="tag-flash"></div>
+    <div id="result-banner">
+      <div id="result-text">🎉 逃げ切り成功！</div>
+      <div class="sub" id="result-sub">生存時間: 60.0 秒</div>
+    </div>
+  </div>
+
+  <!-- ── Side Panel ── -->
+  <div class="side-panel">
+
+    <!-- Stats -->
+    <div class="panel-section">
+      <h3>📊 ステータス</h3>
+      <div class="stat-row">
+        <span class="stat-label">生存時間</span>
+        <span class="stat-val" id="stat-time">0.0 s</span>
+      </div>
+      <div class="progress-wrap"><div id="time-bar" style="width:0%"></div></div>
+
+      <div class="stat-row" style="margin-top:8px">
+        <span class="stat-label">鬼との距離</span>
+        <span class="stat-val" id="stat-dist">-- m</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">ロボット高さ</span>
+        <span class="stat-val" id="stat-height">-- m</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">状態</span>
+        <span class="stat-val" id="stat-state">待機中</span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="panel-section">
+      <h3>⏯ シミュレーション</h3>
+      <div class="btn-row">
+        <button class="btn primary" id="btn-play">▶ 開始</button>
+        <button class="btn" id="btn-reset">↺ リセット</button>
+      </div>
+      <div class="slider-row">
+        <label>速度 <span id="speed-val">1×</span></label>
+        <input type="range" id="speed-slider" min="1" max="8" step="1" value="1">
+      </div>
+    </div>
+
+    <!-- Manual control -->
+    <div class="panel-section">
+      <h3>🕹 手動操作</h3>
+      <div style="font-size:0.75rem;color:#556;margin-bottom:6px">
+        WASD キー または ボタンで操作
+      </div>
+      <div class="dpad">
+        <div></div>
+        <div class="dpad-btn" id="btn-w" data-key="w">↑</div>
+        <div></div>
+        <div class="dpad-btn" id="btn-a" data-key="a">←</div>
+        <div class="dpad-btn" id="btn-stop" data-key="stop">■</div>
+        <div class="dpad-btn" id="btn-d" data-key="d">→</div>
+        <div></div>
+        <div class="dpad-btn" id="btn-s" data-key="s">↓</div>
+        <div></div>
+        <div class="dpad-space" style="height:4px"></div>
+        <div class="dpad-btn" style="grid-column:1/2" id="btn-ql" data-key="q">↺ 左回転</div>
+        <div></div>
+        <div class="dpad-btn" style="grid-column:3/4" id="btn-er" data-key="e">右回転 ↻</div>
+      </div>
+      <div class="slider-row" style="margin-top:8px">
+        <label>速度コマンド強度 <span id="cmd-strength-val">0.8</span></label>
+        <input type="range" id="cmd-strength" min="0.1" max="1.0" step="0.1" value="0.8">
+      </div>
+    </div>
+
+    <!-- Oni settings -->
+    <div class="panel-section">
+      <h3>👹 鬼の設定</h3>
+      <div class="slider-row">
+        <label>移動速度 <span id="oni-speed-val">0.025</span> m/step</label>
+        <input type="range" id="oni-speed" min="0.005" max="0.08" step="0.005" value="0.025">
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">タグ距離</span>
+        <span class="stat-val">0.65 m</span>
+      </div>
+    </div>
+
+    <!-- Camera -->
+    <div class="panel-section">
+      <h3>📷 カメラ</h3>
+      <div class="view-btns">
+        <div class="view-btn active" id="cam-top">俯瞰</div>
+        <div class="view-btn" id="cam-side">斜め</div>
+        <div class="view-btn" id="cam-free">自由</div>
+      </div>
+    </div>
+
+    <!-- Policy model -->
+    <div class="panel-section">
+      <h3>🤖 AIポリシー</h3>
+      <div style="font-size:0.75rem;color:#556;margin-bottom:6px">
+        ONNXモデルを読み込むと AI が自動操縦します
+      </div>
+      <button class="btn" id="btn-load-model">📂 モデルを読み込む (.onnx)</button>
+      <input type="file" id="model-file-input" accept=".onnx">
+      <button class="btn" id="btn-load-vecnorm" style="margin-top:0">📂 VecNorm stats (.json)</button>
+      <input type="file" id="vecnorm-file-input" accept=".json" style="display:none">
+      <div class="model-status" id="model-status">モデル未読み込み（手動操作モード）</div>
+    </div>
+
+  </div><!-- /side-panel -->
+</div><!-- /main -->
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ═══════════════════════════════════════════════════════════
+//  定数
+// ═══════════════════════════════════════════════════════════
+const MAX_TIME_S   = 60.0;    // エピソード最大秒数
+const TAG_DIST     = 0.65;    // タグ判定距離 (m)
+const ARENA_HALF   = 2.35;    // アリーナ内側境界
+const SIM_DT       = 0.004;   // MuJoCo タイムステップ (秒)
+const CTRL_HZ      = 50;      // 制御周波数 (Hz)
+const SIM_STEPS    = Math.round(1 / (CTRL_HZ * SIM_DT)); // 5 sub-steps
+
+// 立ち姿勢 (FR,FL,RR,RL 順 for actuators)
+const STANDING_POS = new Float64Array([
+  0, 0.9, -1.8,  // FR
+  0, 0.9, -1.8,  // FL
+  0, 0.9, -1.8,  // RR
+  0, 0.9, -1.8,  // RL
+]);
+const ACTION_SCALE = 0.3;
+const KP = 20.0, KD = 0.5;
+
+// Body IDs in arena_web.xml (DFS order)
+// 0:world, 1:base_link, 2:FL_hip, 3:FL_thigh, 4:FL_calf, 5:FL_foot,
+// 6:FR_hip, 7:FR_thigh, 8:FR_calf, 9:FR_foot,
+// 10:RL_hip, 11:RL_thigh, 12:RL_calf, 13:RL_foot,
+// 14:RR_hip, 15:RR_thigh, 16:RR_calf, 17:RR_foot,
+// 18:oni
+const BODY_BASE    = 1;
+const BODY_FL_HIP  = 2,  BODY_FL_THIGH = 3,  BODY_FL_CALF = 4;
+const BODY_FR_HIP  = 6,  BODY_FR_THIGH = 7,  BODY_FR_CALF = 8;
+const BODY_RL_HIP  = 10, BODY_RL_THIGH = 11, BODY_RL_CALF = 12;
+const BODY_RR_HIP  = 14, BODY_RR_THIGH = 15, BODY_RR_CALF = 16;
+const BODY_ONI     = 18;
+
+// Coordinate convert: MuJoCo(X fwd, Y left, Z up) → Three.js(X right, Y up, Z back)
+// pos: (x, y, z)_mj → (x, z, -y)_three
+// quat: premultiply by -90° around X
+const COORD_QUAT = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+
+function mjPos(xpos, id) {
+  const i = id * 3;
+  return new THREE.Vector3(xpos[i], xpos[i+2], -xpos[i+1]);
+}
+function mjQuat(xquat, id) {
+  const i = id * 4;
+  const q = new THREE.Quaternion(xquat[i+1], xquat[i+2], xquat[i+3], xquat[i]);
+  return COORD_QUAT.clone().multiply(q);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  グローバル状態
+// ═══════════════════════════════════════════════════════════
+let mj, model, data;   // mujoco_wasm objects
+let renderer, scene, camera, controls;
+let meshMap = {};      // body_id → THREE.Object3D
+let simRunning = false;
+let simTime = 0;
+let lastFrameTime = 0;
+let fpsCounter = 0, fpsAccum = 0;
+let speedMult = 1;
+let cmdStrength = 0.8;
+let oniSpeed = 0.025;
+let oniX = 0, oniY = 1.5; // initial oni position
+let velCmd = [0, 0, 0];   // [vx, vy, omega] for low-level PD
+let lastAction = new Float64Array(12);
+let stepCount = 0;
+let episode = { tagged: false, fallen: false, success: false };
+
+// ONNX policy
+let onnxSession = null;
+let vecnormMean = null, vecnormVar = null;
+let policyMode = 'manual'; // 'manual' | 'ai'
+
+// Camera modes
+let camMode = 'top';
+
+// ═══════════════════════════════════════════════════════════
+//  UI ユーティリティ
+// ═══════════════════════════════════════════════════════════
+function setLoading(msg, progress = '') {
+  document.getElementById('loading-msg').textContent = msg;
+  document.getElementById('loading-progress').textContent = progress;
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+function showLoading() {
+  document.getElementById('loading-overlay').style.display = 'flex';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Three.js セットアップ
+// ═══════════════════════════════════════════════════════════
+function initThree() {
+  const canvas = document.getElementById('canvas');
+  const wrap   = document.getElementById('canvas-wrap');
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111118);
+  scene.fog = new THREE.FogExp2(0x111118, 0.12);
+
+  // Lights
+  const ambient = new THREE.AmbientLight(0x334455, 1.5);
+  scene.add(ambient);
+
+  const sun = new THREE.DirectionalLight(0xffffff, 2.5);
+  sun.position.set(3, 8, 4);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.near = 0.1;
+  sun.shadow.camera.far  = 30;
+  sun.shadow.camera.left = sun.shadow.camera.bottom = -6;
+  sun.shadow.camera.right = sun.shadow.camera.top   =  6;
+  scene.add(sun);
+
+  const fill = new THREE.DirectionalLight(0x8899ff, 0.6);
+  fill.position.set(-3, 4, -2);
+  scene.add(fill);
+
+  // Camera
+  camera = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
+  setCameraMode('top');
+
+  controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 1; controls.maxDistance = 20;
+
+  // Resize
+  function onResize() {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', onResize);
+  onResize();
+
+  buildArenaScene();
+}
+
+function setCameraMode(mode) {
+  camMode = mode;
+  if (mode === 'top') {
+    camera.position.set(0, 7, 0.01);
+    camera.up.set(0, 0, -1);
+    camera.lookAt(0, 0, 0);
+    if (controls) { controls.enabled = false; }
+  } else if (mode === 'side') {
+    camera.position.set(5, 4, 5);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(0, 0.3, 0);
+    if (controls) { controls.enabled = false; }
+  } else {
+    camera.position.set(4, 3, 4);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(0, 0.3, 0);
+    if (controls) { controls.enabled = true; }
+  }
+}
+
+// ── Arena static geometry ──
+function buildArenaScene() {
+  // Ground plane (XZ plane in Three.js = MuJoCo XY plane)
+  const groundGeo  = new THREE.PlaneGeometry(5, 5, 20, 20);
+  const groundMat  = new THREE.MeshLambertMaterial({ color: 0x2a4a2a });
+  const ground     = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Grid
+  const grid = new THREE.GridHelper(5, 10, 0x3a6a3a, 0x2e4a2e);
+  grid.position.y = 0.001;
+  scene.add(grid);
+
+  // Walls
+  const wallMat = new THREE.MeshLambertMaterial({
+    color: 0x445566, transparent: true, opacity: 0.55, side: THREE.DoubleSide
+  });
+  const wallPairs = [
+    { pos: [0, 0.5,  -2.55], size: [5.1, 1, 0.1] },   // north (mj +Y → three -Z)
+    { pos: [0, 0.5,   2.55], size: [5.1, 1, 0.1] },   // south
+    { pos: [ 2.55, 0.5, 0],  size: [0.1, 1, 5.1] },   // east
+    { pos: [-2.55, 0.5, 0],  size: [0.1, 1, 5.1] },   // west
+  ];
+  wallPairs.forEach(w => {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(...w.size),
+      wallMat
+    );
+    m.position.set(...w.pos);
+    m.receiveShadow = true;
+    scene.add(m);
+  });
+}
+
+// ── Robot / Oni geometry ──
+function buildRobotMeshes() {
+  const matTrunk = new THREE.MeshLambertMaterial({ color: 0xe8c040 }); // yellow
+  const matHip   = new THREE.MeshLambertMaterial({ color: 0x8090a0 }); // gray
+  const matThigh = new THREE.MeshLambertMaterial({ color: 0x6070a0 }); // blue-gray
+  const matCalf  = new THREE.MeshLambertMaterial({ color: 0x4a5a80 });
+  const matFoot  = new THREE.MeshLambertMaterial({ color: 0x111111 }); // black
+  const matOni   = new THREE.MeshLambertMaterial({ color: 0xee2222 }); // red
+  const matEye   = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const matDir   = new THREE.MeshLambertMaterial({ color: 0x40c0ff }); // forward indicator
+
+  function box(sx, sy, sz, mat) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+    m.castShadow = m.receiveShadow = true;
+    return m;
+  }
+  function cyl(r, h, mat) {
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r, h, 8), mat
+    );
+    m.castShadow = m.receiveShadow = true;
+    return m;
+  }
+  function sphere(r, mat) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), mat);
+    m.castShadow = true;
+    return m;
+  }
+
+  function addBody(id, obj) {
+    meshMap[id] = obj;
+    scene.add(obj);
+  }
+
+  // Trunk (base_link) — box + forward arrow
+  const trunk = new THREE.Group();
+  const trunkBox = box(0.376, 0.114, 0.094, matTrunk);
+  trunk.add(trunkBox);
+  // Forward indicator (cyan nose)
+  const nose = box(0.05, 0.04, 0.04, matDir);
+  nose.position.set(0.213, 0, 0);
+  trunk.add(nose);
+  addBody(BODY_BASE, trunk);
+
+  // Helper: add hip+thigh+calf for one leg
+  function addLeg(hipId, thighId, calfId) {
+    addBody(hipId,   sphere(0.04, matHip));
+    addBody(thighId, cyl(0.022, 0.213, matThigh));
+    addBody(calfId,  cyl(0.018, 0.213, matCalf));
+  }
+  addLeg(BODY_FL_HIP, BODY_FL_THIGH, BODY_FL_CALF);
+  addLeg(BODY_FR_HIP, BODY_FR_THIGH, BODY_FR_CALF);
+  addLeg(BODY_RL_HIP, BODY_RL_THIGH, BODY_RL_CALF);
+  addLeg(BODY_RR_HIP, BODY_RR_THIGH, BODY_RR_CALF);
+
+  // Oni (red sphere)
+  const oni = new THREE.Group();
+  oni.add(sphere(0.28, matOni));
+  const eye = sphere(0.08, matEye);
+  eye.position.set(0.25, 0.1, 0); // forward + up
+  oni.add(eye);
+  addBody(BODY_ONI, oni);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MuJoCo 初期化
+// ═══════════════════════════════════════════════════════════
+async function initMujoco() {
+  setLoading('MuJoCo WASM を読み込み中…', 'dist/mujoco_wasm.js');
+
+  // Load mujoco_wasm module
+  let loadMujoco;
+  try {
+    const mod = await import('./dist/mujoco_wasm.js');
+    loadMujoco = mod.default;
+  } catch (e) {
+    setLoading('❌ dist/mujoco_wasm.js が見つかりません',
+      'setup_wasm.sh を実行してから再読み込みしてください');
+    throw e;
+  }
+
+  setLoading('MuJoCo を初期化中…', '');
+  mj = await loadMujoco();
+
+  // Virtual filesystem setup
+  mj.FS.mkdir('/working');
+  mj.FS.mount(mj.MEMFS, { root: '.' }, '/working');
+
+  // Load model files
+  setLoading('モデルファイルを読み込み中…', 'arena_web.xml');
+
+  const BASE = '../models/go2/';
+  const files = [
+    ['arena_web.xml',  BASE + 'arena_web.xml'],
+    ['go2_simple.xml', BASE + 'go2_simple.xml'],
+  ];
+
+  for (const [vfsName, url] of files) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
+    const text = await resp.text();
+    mj.FS.writeFile('/working/' + vfsName, text);
+    setLoading('モデルファイルを読み込み中…', vfsName);
+  }
+
+  // Create model & data
+  setLoading('モデルをコンパイル中…', '');
+  model = mj.MjModel.loadFromXML('/working/arena_web.xml');
+  data  = new mj.MjData(model);
+
+  // Set timestep (go2_simple doesn't specify it, default is 0.002 in MuJoCo)
+  // We run 5 sub-steps per control step at 50 Hz → dt = 0.02s
+  // model.opt.timestep is already set by MuJoCo default
+
+  document.getElementById('phys-status').textContent = `nbody=${model.nbody}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  シミュレーション制御
+// ═══════════════════════════════════════════════════════════
+function resetSim() {
+  mj.mj_resetData(model, data);
+  // Apply keyframe "home"
+  const kqpos = model.key_qpos; // Float64Array, nkey × nq
+  for (let i = 0; i < model.nq; i++) {
+    data.qpos[i] = kqpos[i];
+  }
+  data.qvel.fill(0);
+
+  // Place oni diagonally
+  oniX = 1.5; oniY = 1.5;
+  data.qpos[19] = oniX;
+  data.qpos[20] = oniY;
+
+  mj.mj_forward(model, data);
+  simTime = 0;
+  stepCount = 0;
+  lastAction.fill(0);
+  velCmd = [0, 0, 0];
+  episode = { tagged: false, fallen: false, success: false };
+  document.getElementById('result-banner').classList.remove('show');
+  document.getElementById('tag-flash').style.opacity = '0';
+  updateStats();
+}
+
+function applyPDControl(velCmdArr) {
+  // Low-level PD control: action from vel_cmd or AI policy
+  // If AI policy: compute action from policy output (already done before this)
+  // If manual: use velCmd to compute a simple default action (stand still or walk)
+  const action = computeAction(velCmdArr);
+  const qpos = data.qpos, qvel = data.qvel, ctrl = data.ctrl;
+  const limits = model.actuator_ctrlrange; // shape: (nu, 2)
+
+  for (let i = 0; i < 12; i++) {
+    const q_target = STANDING_POS[i] + action[i] * ACTION_SCALE;
+    const q_cur    = qpos[7 + i];
+    const dq_cur   = qvel[6 + i];
+    let tau = KP * (q_target - q_cur) - KD * dq_cur;
+    tau = Math.max(limits[i*2], Math.min(limits[i*2+1], tau));
+    ctrl[i] = tau;
+  }
+  lastAction = action;
+}
+
+// Simple rule-based action (no AI): just hold standing pose + add vel-based perturbation
+function computeAction(vcmd) {
+  if (onnxSession) return lastAction; // AI mode: action set externally
+  // Manual: very simple "lean into direction" heuristic
+  const [vx, vy, omega] = vcmd;
+  const a = new Float64Array(12);
+  // Roughly: forward vel makes thighs swing, turn makes hip difference
+  // This is not a real walking gait — just keeps the robot vaguely upright
+  // For real walking, train the walk policy and export to ONNX
+  const swing = Math.sin(simTime * 5) * 0.3 * Math.abs(vx);
+  const side   = vy * 0.2;
+  // FR, FL, RR, RL order in STANDING_POS matches actuator order
+  a[1]  = swing;   // FR thigh
+  a[4]  = -swing;  // FL thigh
+  a[7]  = swing;   // RR thigh
+  a[10] = -swing;  // RL thigh
+  // Hip abduction for lateral
+  a[0] = -omega * 0.15; a[3] = omega * 0.15; // FR/FL hip
+  a[6] = -omega * 0.1;  a[9] = omega * 0.1;  // RR/RL hip
+  return a;
+}
+
+function moveOni() {
+  // Chase robot: move toward robot position
+  const robotX = data.qpos[0];
+  const robotY = data.qpos[1];
+  const dx = robotX - oniX, dy = robotY - oniY;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist > 0.01) {
+    oniX = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, oniX + (dx/dist) * oniSpeed));
+    oniY = Math.max(-ARENA_HALF, Math.min(ARENA_HALF, oniY + (dy/dist) * oniSpeed));
+  }
+  data.qpos[19] = oniX;
+  data.qpos[20] = oniY;
+}
+
+async function runAIPolicy() {
+  if (!onnxSession) return;
+  // Compute high-level observation (10-dim)
+  const robotX = data.qpos[0], robotY = data.qpos[1];
+  const relDx = oniX - robotX, relDy = oniY - robotY;
+  const dist   = Math.sqrt(relDx*relDx + relDy*relDy);
+  const angVel = [data.qvel[3], data.qvel[4], data.qvel[5]];
+  const [gx, gy, gz] = projectedGravity();
+  const timeLeft = (MAX_TIME_S - simTime) / MAX_TIME_S;
+
+  let obs = new Float32Array([relDx, relDy, dist, ...angVel, gx, gy, gz, timeLeft]);
+
+  // VecNormalize
+  if (vecnormMean && vecnormVar) {
+    for (let i = 0; i < obs.length; i++) {
+      obs[i] = (obs[i] - vecnormMean[i]) / Math.sqrt(vecnormVar[i] + 1e-8);
+      obs[i] = Math.max(-10, Math.min(10, obs[i]));
+    }
+  }
+
+  try {
+    const tensor = new ort.Tensor('float32', obs, [1, 10]);
+    const result = await onnxSession.run({ obs: tensor });
+    const actionOut = result[Object.keys(result)[0]].data; // [vx, vy, omega]
+    velCmd = [
+      Math.max(-1, Math.min(1, actionOut[0])),
+      Math.max(-1, Math.min(1, actionOut[1])),
+      Math.max(-1, Math.min(1, actionOut[2])),
+    ];
+  } catch (e) {
+    console.warn('ONNX inference error:', e);
+  }
+}
+
+function projectedGravity() {
+  // Read trunk quaternion (qpos[3:7] = w,x,y,z)
+  const w = data.qpos[3], qx = data.qpos[4], qy = data.qpos[5], qz = data.qpos[6];
+  const R = [
+    [1-2*(qy*qy+qz*qz), 2*(qx*qy+w*qz),   2*(qx*qz-w*qy)],
+    [2*(qx*qy-w*qz),   1-2*(qx*qx+qz*qz),  2*(qy*qz+w*qx)],
+    [2*(qx*qz+w*qy),    2*(qy*qz-w*qx),   1-2*(qx*qx+qy*qy)],
+  ];
+  const g = [0, 0, -1]; // gravity world
+  return [
+    R[0][0]*g[0]+R[1][0]*g[1]+R[2][0]*g[2],
+    R[0][1]*g[0]+R[1][1]*g[1]+R[2][1]*g[2],
+    R[0][2]*g[0]+R[1][2]*g[1]+R[2][2]*g[2],
+  ];
+}
+
+// Simulate one control step
+async function simStep() {
+  if (!simRunning || episode.tagged || episode.fallen || episode.success) return;
+
+  // AI policy (high-level) — runs every control step
+  if (onnxSession) {
+    await runAIPolicy();
+  }
+
+  // Move oni
+  moveOni();
+
+  // Physics substeps
+  applyPDControl(velCmd);
+  for (let i = 0; i < SIM_STEPS; i++) {
+    mj.mj_step(model, data);
+  }
+
+  simTime += 1 / CTRL_HZ;
+  stepCount++;
+
+  // Check termination
+  const robotX = data.qpos[0], robotY = data.qpos[1];
+  const robotZ = data.qpos[2];
+  const dx = robotX - oniX, dy = robotY - oniY;
+  const distToOni = Math.sqrt(dx*dx + dy*dy);
+
+  if (distToOni < TAG_DIST) {
+    episode.tagged = true;
+    showResult(false, simTime);
+    return;
+  }
+  if (robotZ < 0.15) {
+    episode.fallen = true;
+    showResult(false, simTime);
+    return;
+  }
+  if (simTime >= MAX_TIME_S) {
+    episode.success = true;
+    showResult(true, simTime);
+    return;
+  }
+
+  updateStats();
+}
+
+function showResult(success, time) {
+  simRunning = false;
+  document.getElementById('btn-play').textContent = '▶ 開始';
+  const banner = document.getElementById('result-banner');
+  const flash  = document.getElementById('tag-flash');
+
+  if (success) {
+    document.getElementById('result-text').textContent = '🎉 逃げ切り成功！';
+    banner.style.borderColor = '#40c060';
+  } else {
+    document.getElementById('result-text').textContent = episode.fallen ? '😵 転倒！' : '😱 タグされた！';
+    banner.style.borderColor = '#ff4040';
+    flash.style.opacity = '0.8';
+    setTimeout(() => { flash.style.opacity = '0'; }, 600);
+  }
+  document.getElementById('result-sub').textContent = `生存時間: ${time.toFixed(1)} 秒`;
+  banner.classList.add('show');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Three.js 描画更新
+// ═══════════════════════════════════════════════════════════
+function updateMeshes() {
+  if (!data || !mj) return;
+  const xpos  = data.xpos;   // Float64Array (nbody × 3)
+  const xquat = data.xquat;  // Float64Array (nbody × 4)
+
+  for (const [id, mesh] of Object.entries(meshMap)) {
+    const bid = parseInt(id);
+    const p = mjPos(xpos, bid);
+    const q = mjQuat(xquat, bid);
+    mesh.position.copy(p);
+    mesh.quaternion.copy(q);
+  }
+}
+
+function updateStats() {
+  const robotZ  = data ? data.qpos[2] : 0;
+  const robotX  = data ? data.qpos[0] : 0;
+  const robotY  = data ? data.qpos[1] : 0;
+  const dx = robotX - oniX, dy = robotY - oniY;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+
+  const pct = Math.min(100, (simTime / MAX_TIME_S) * 100);
+  document.getElementById('stat-time').textContent = `${simTime.toFixed(1)} s`;
+  document.getElementById('time-bar').style.width  = `${pct}%`;
+  document.getElementById('stat-dist').textContent = `${dist.toFixed(2)} m`;
+  document.getElementById('stat-height').textContent = `${robotZ.toFixed(3)} m`;
+
+  const distEl  = document.getElementById('stat-dist');
+  const statEl  = document.getElementById('stat-state');
+  distEl.className = 'stat-val' + (dist < 1.0 ? ' danger' : dist > 2 ? ' good' : '');
+
+  if (!simRunning) {
+    statEl.textContent = '停止中';
+    statEl.className   = 'stat-val';
+  } else if (robotZ < 0.2) {
+    statEl.textContent = '⚠ 転倒危険';
+    statEl.className   = 'stat-val danger';
+  } else if (dist < TAG_DIST * 1.5) {
+    statEl.textContent = '🔴 危険';
+    statEl.className   = 'stat-val danger';
+  } else {
+    statEl.textContent = '🟢 逃走中';
+    statEl.className   = 'stat-val good';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  アニメーションループ
+// ═══════════════════════════════════════════════════════════
+let simAccum = 0;
+const SIM_FRAME_DT = 1 / CTRL_HZ; // seconds per control step
+
+function animLoop(now) {
+  requestAnimationFrame(animLoop);
+
+  const dtMs = Math.min(now - lastFrameTime, 100); // cap at 100ms
+  lastFrameTime = now;
+
+  // FPS counter
+  fpsAccum += dtMs; fpsCounter++;
+  if (fpsAccum > 500) {
+    document.getElementById('fps').textContent = Math.round(fpsCounter / (fpsAccum/1000));
+    fpsAccum = 0; fpsCounter = 0;
+  }
+
+  // Accumulate sim time (speedMult × realtime)
+  if (simRunning) {
+    simAccum += (dtMs / 1000) * speedMult;
+    while (simAccum >= SIM_FRAME_DT) {
+      simAccum -= SIM_FRAME_DT;
+      simStep(); // sync part (AI policy is async but we won't await here)
+    }
+  }
+
+  updateMeshes();
+
+  // Follow camera modes
+  if (camMode === 'top' && data) {
+    const rx = data.qpos[0], ry = data.qpos[1];
+    // In Three.js (Y-up) robot XY → XZ: (rx, 0, -ry)
+    camera.position.set(rx, 7, -ry);
+    camera.lookAt(rx, 0, -ry);
+  } else if (camMode === 'side' && data) {
+    const rx = data.qpos[0], ry = data.qpos[1];
+    camera.position.set(rx + 4, 3, -ry + 3);
+    camera.lookAt(rx, 0.3, -ry);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  キーボード入力
+// ═══════════════════════════════════════════════════════════
+const keysDown = new Set();
+function handleKeys() {
+  let vx = 0, vy = 0, omega = 0;
+  const s = cmdStrength;
+  if (keysDown.has('w') || keysDown.has('arrowup'))    vx =  s;
+  if (keysDown.has('s') || keysDown.has('arrowdown'))  vx = -s;
+  if (keysDown.has('a') || keysDown.has('arrowleft'))  omega =  s;
+  if (keysDown.has('d') || keysDown.has('arrowright')) omega = -s;
+  if (keysDown.has('q')) vy =  s * 0.5;
+  if (keysDown.has('e')) vy = -s * 0.5;
+  if (!onnxSession) velCmd = [vx, vy, omega];
+}
+
+document.addEventListener('keydown', e => {
+  keysDown.add(e.key.toLowerCase());
+  handleKeys();
+  if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+  if (e.key.toLowerCase() === 'r') resetSim();
+});
+document.addEventListener('keyup', e => {
+  keysDown.delete(e.key.toLowerCase());
+  handleKeys();
+});
+
+// D-pad buttons
+document.querySelectorAll('.dpad-btn').forEach(btn => {
+  const setCmd = (pressed) => {
+    if (pressed) btn.classList.add('pressed');
+    else         btn.classList.remove('pressed');
+    const k = btn.dataset.key;
+    if (pressed) keysDown.add(k); else keysDown.delete(k);
+    if (k === 'stop') { keysDown.clear(); velCmd = [0,0,0]; }
+    else handleKeys();
+  };
+  btn.addEventListener('pointerdown', () => setCmd(true));
+  btn.addEventListener('pointerup',   () => setCmd(false));
+  btn.addEventListener('pointerleave',() => setCmd(false));
+});
+
+// ═══════════════════════════════════════════════════════════
+//  UI イベント
+// ═══════════════════════════════════════════════════════════
+function togglePlay() {
+  if (episode.tagged || episode.fallen || episode.success) {
+    resetSim();
+    simRunning = true;
+    document.getElementById('btn-play').textContent = '⏸ 停止';
+    return;
+  }
+  simRunning = !simRunning;
+  document.getElementById('btn-play').textContent = simRunning ? '⏸ 停止' : '▶ 開始';
+  if (simRunning) updateStats();
+}
+
+document.getElementById('btn-play').addEventListener('click', togglePlay);
+document.getElementById('btn-reset').addEventListener('click', () => {
+  resetSim();
+  simRunning = false;
+  document.getElementById('btn-play').textContent = '▶ 開始';
+});
+
+document.getElementById('speed-slider').addEventListener('input', e => {
+  speedMult = parseInt(e.target.value);
+  document.getElementById('speed-val').textContent = speedMult + '×';
+});
+
+document.getElementById('cmd-strength').addEventListener('input', e => {
+  cmdStrength = parseFloat(e.target.value);
+  document.getElementById('cmd-strength-val').textContent = cmdStrength.toFixed(1);
+});
+
+document.getElementById('oni-speed').addEventListener('input', e => {
+  oniSpeed = parseFloat(e.target.value);
+  document.getElementById('oni-speed-val').textContent = oniSpeed.toFixed(3);
+});
+
+// Camera buttons
+['cam-top','cam-side','cam-free'].forEach(id => {
+  document.getElementById(id).addEventListener('click', () => {
+    const mode = id.replace('cam-','');
+    setCameraMode(mode);
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  });
+});
+
+// ONNX model loading
+document.getElementById('btn-load-model').addEventListener('click', () => {
+  document.getElementById('model-file-input').click();
+});
+document.getElementById('model-file-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('model-status');
+  statusEl.textContent = 'モデルを読み込み中…';
+  statusEl.className   = 'model-status';
+  try {
+    // ONNX Runtime Web (CDN) — loaded lazily
+    if (!window.ort) {
+      await loadScript('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js');
+    }
+    const buf = await file.arrayBuffer();
+    onnxSession = await window.ort.InferenceSession.create(buf);
+    policyMode = 'ai';
+    statusEl.textContent = `✅ ${file.name} 読み込み完了`;
+    statusEl.className   = 'model-status loaded';
+    document.getElementById('model-status').textContent += ' (AI モード)';
+  } catch (err) {
+    statusEl.textContent = '❌ 読み込みエラー: ' + err.message;
+    console.error(err);
+  }
+});
+
+document.getElementById('btn-load-vecnorm').addEventListener('click', () => {
+  document.getElementById('vecnorm-file-input').click();
+});
+document.getElementById('vecnorm-file-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const json = JSON.parse(await file.text());
+    vecnormMean = new Float32Array(json.obs_rms_mean);
+    vecnormVar  = new Float32Array(json.obs_rms_var);
+    document.getElementById('model-status').textContent += ' + VecNorm ✅';
+  } catch (err) {
+    console.error('VecNorm load error:', err);
+  }
+});
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  エントリポイント
+// ═══════════════════════════════════════════════════════════
+async function main() {
+  initThree();
+
+  try {
+    await initMujoco();
+  } catch (e) {
+    console.error('MuJoCo init failed:', e);
+    return;
+  }
+
+  buildRobotMeshes();
+  resetSim();
+  hideLoading();
+
+  document.getElementById('phys-status').textContent = '準備完了';
+  lastFrameTime = performance.now();
+  requestAnimationFrame(animLoop);
+}
+
+main().catch(console.error);
+</script>
+</body>
+</html>
