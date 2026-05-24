@@ -134,14 +134,14 @@ def _make_walk_action():
 def _make_velocity_command():
     """WASD キーボード / UI スライダーによる速度コマンド設定。"""
     from mjswan import velocity_command
-    from mjswan.command import CommandTermSpec
 
     return velocity_command(
-        CommandTermSpec(
-            lin_vel_x=(-1.0, 1.0),
-            lin_vel_y=(-0.5, 0.5),
-            ang_vel_z=(-1.0, 1.0),
-        )
+        lin_vel_x=(-1.0, 1.0),
+        lin_vel_y=(-0.5, 0.5),
+        ang_vel_z=(-1.0, 1.0),
+        default_lin_vel_x=0.0,
+        default_lin_vel_y=0.0,
+        default_ang_vel_z=0.0,
     )
 
 
