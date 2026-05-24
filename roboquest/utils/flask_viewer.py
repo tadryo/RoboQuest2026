@@ -23,9 +23,13 @@ import threading
 import time
 from typing import Optional
 
+# MUJOCO_GL を mujoco import 前にフォールバック設定（未設定の場合 osmesa を使用）
+if "MUJOCO_GL" not in os.environ:
+    os.environ["MUJOCO_GL"] = "osmesa"
+
 import mujoco
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 # ── パス ──────────────────────────────────────────────────────────────────────
 _HERE     = os.path.dirname(__file__)
@@ -107,6 +111,21 @@ class FlaskViewer:
         self._done_reason = ""
 
         self._reset_sim()
+
+        # プレースホルダー JPEG（レンダラー起動前に空レスポンスを防ぐ）
+        self._frame_jpg = self._make_placeholder_jpg("🚀 レンダラー起動中...")
+
+    # ── プレースホルダー画像生成 ──────────────────────────────────────────────
+
+    def _make_placeholder_jpg(self, msg: str = "Loading...") -> bytes:
+        """テキスト付きグレー画像を JPEG として返す。"""
+        w, h = self.render_wh
+        img = Image.new("RGB", (w, h), color=(20, 20, 30))
+        draw = ImageDraw.Draw(img)
+        draw.text((w // 2, h // 2), msg, fill=(160, 180, 220), anchor="mm")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        return buf.getvalue()
 
     # ── シミュレーション ──────────────────────────────────────────────────────
 
@@ -219,26 +238,42 @@ class FlaskViewer:
     def _render_loop(self) -> None:
         """レンダリングスレッド（JPEG フレーム生成）。"""
         interval = 1.0 / self.render_fps
-        renderer = mujoco.Renderer(
-            self.model,
-            height=self.render_wh[1],
-            width=self.render_wh[0],
-        )
+
+        # Renderer 初期化（失敗したらプレースホルダーを表示し続ける）
+        renderer = None
+        try:
+            renderer = mujoco.Renderer(
+                self.model,
+                height=self.render_wh[1],
+                width=self.render_wh[0],
+            )
+            print(f"✅ MuJoCo Renderer 初期化成功 (MUJOCO_GL={os.environ.get('MUJOCO_GL','未設定')})")
+        except Exception as e:
+            print(f"❌ MuJoCo Renderer 初期化失敗: {e}")
+            print(f"   MUJOCO_GL={os.environ.get('MUJOCO_GL','未設定')}")
+            print("   → セットアップセルを再実行してランタイムを再起動してください")
+            self._frame_jpg = self._make_placeholder_jpg(f"レンダラーエラー: {type(e).__name__}")
+
+        _err_count = 0
         while True:
             t0 = time.perf_counter()
-            with self._lock:
-                try:
-                    if self._cam_id >= 0:
-                        renderer.update_scene(self.data, camera=self._cam_id)
-                    else:
-                        renderer.update_scene(self.data)
-                    rgb = renderer.render()
-                except Exception:
-                    pass
-                else:
-                    buf = io.BytesIO()
-                    Image.fromarray(rgb).save(buf, format="JPEG", quality=80)
-                    self._frame_jpg = buf.getvalue()
+            if renderer is not None:
+                with self._lock:
+                    try:
+                        if self._cam_id >= 0:
+                            renderer.update_scene(self.data, camera=self._cam_id)
+                        else:
+                            renderer.update_scene(self.data)
+                        rgb = renderer.render()
+                        buf = io.BytesIO()
+                        Image.fromarray(rgb).save(buf, format="JPEG", quality=80)
+                        self._frame_jpg = buf.getvalue()
+                        _err_count = 0
+                    except Exception as e:
+                        _err_count += 1
+                        if _err_count <= 3:
+                            print(f"⚠  render error #{_err_count}: {e}")
+                        self._frame_jpg = self._make_placeholder_jpg(f"render error: {type(e).__name__}")
             elapsed = time.perf_counter() - t0
             time.sleep(max(0, interval - elapsed))
 
