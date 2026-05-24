@@ -291,9 +291,18 @@ class FlaskViewer:
 
         viewer = self  # closure
 
+        @app.after_request
+        def _add_headers(response):
+            """IFrame 埋め込み・CORS・キャッシュ無効化ヘッダーを付与。"""
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["X-Frame-Options"] = "ALLOWALL"
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            return response
+
         @app.route("/")
         def index():
-            return viewer._html_page()
+            from flask import Response as _R
+            return _R(viewer._html_page(), mimetype="text/html; charset=utf-8")
 
         @app.route("/frame")
         def frame():
@@ -663,14 +672,23 @@ fetchFrame(); // 初回即座に取得
         ).start()
         time.sleep(1.2)   # Flask 起動待機
 
-        # ── Colab proxy URL を取得して IFrame 表示 ──────────────────────────
+        # ── Colab proxy URL を取得して表示 ──────────────────────────────────
         try:
             from google.colab.output import eval_js
-            from IPython.display import IFrame, display as ipy_display
+            from google.colab import output as _colab_out
             proxy_url = eval_js(f'google.colab.kernel.proxyPort({actual_port})')
             print(f"✅ ビューアー起動 → {proxy_url}")
-            print("   ↑ リンクを新しいタブで開くか、下の IFrame で確認できます")
-            ipy_display(IFrame(src=proxy_url, width="100%", height=height))
+            print("   ↑ 上のリンクを新しいタブで開いてください")
+            print("   （初回は「接続を許可」ボタンが表示される場合があります → クリックしてください）")
+            # Colab 公式 API でインライン表示（X-Frame-Options を回避できる）
+            try:
+                _colab_out.serve_kernel_port_as_iframe(
+                    actual_port, height=f"{height}px", path="/"
+                )
+            except Exception:
+                # フォールバック: 通常の IFrame
+                from IPython.display import IFrame, display as ipy_display
+                ipy_display(IFrame(src=proxy_url, width="100%", height=height))
         except ImportError:
             # Colab 外（ローカル実行）では URL を表示
             print(f"✅ ビューアー起動 → http://localhost:{actual_port}/")
