@@ -179,7 +179,7 @@ def build_walk(
             actions=_make_walk_action(),
             policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
-            commands=[_make_velocity_command()],
+            commands={"velocity": _make_velocity_command()},
         )
     )
 
@@ -221,7 +221,7 @@ def build_flee(
             actions=_make_walk_action(),
             policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
-            commands=[_make_velocity_command()],
+            commands={"velocity": _make_velocity_command()},
         )
     )
 
