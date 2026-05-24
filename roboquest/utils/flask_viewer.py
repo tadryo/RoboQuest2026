@@ -598,29 +598,45 @@ fetchFrame(); // 初回即座に取得
 
         Parameters
         ----------
-        port   : Flask サーバーのポート番号
+        port   : 希望ポート番号（使用中の場合は自動で次のポートを探す）
         height : IFrame の高さ (px)
         """
-        # シミュレーションスレッド起動
+        import socket
+
+        # ── 空きポートを自動検出 ────────────────────────────────────────────
+        actual_port = None
+        for p in range(port, port + 20):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if s.connect_ex(('127.0.0.1', p)) != 0:   # 接続できない = 空き
+                    actual_port = p
+                    break
+        if actual_port is None:
+            print(f"❌ ポート {port}〜{port+19} がすべて使用中です。Colab ランタイムを再起動してください。")
+            return
+
+        if actual_port != port:
+            print(f"⚠  ポート {port} は使用中のため {actual_port} を使用します。")
+
+        # ── バックグラウンドスレッド起動 ────────────────────────────────────
         threading.Thread(target=self._sim_loop,    daemon=True).start()
-        # レンダリングスレッド起動
         threading.Thread(target=self._render_loop, daemon=True).start()
-        time.sleep(0.5)  # 最初のフレームが生成されるまで待機
+        time.sleep(0.6)   # 最初のフレームが生成されるまで待機
 
-        # Flask サーバー起動
         threading.Thread(
-            target=self._start_server, args=(port,), daemon=True
+            target=self._start_server, args=(actual_port,), daemon=True
         ).start()
-        time.sleep(1.0)  # サーバー起動待機
+        time.sleep(1.2)   # Flask 起動待機
 
-        # Colab proxy URL を取得して IFrame 表示
+        # ── Colab proxy URL を取得して IFrame 表示 ──────────────────────────
         try:
             from google.colab.output import eval_js
             from IPython.display import IFrame, display as ipy_display
-            proxy_url = eval_js(f'google.colab.kernel.proxyPort({port})')
+            proxy_url = eval_js(f'google.colab.kernel.proxyPort({actual_port})')
             print(f"✅ ビューアー起動 → {proxy_url}")
+            print("   ↑ リンクを新しいタブで開くか、下の IFrame で確認できます")
             ipy_display(IFrame(src=proxy_url, width="100%", height=height))
         except ImportError:
             # Colab 外（ローカル実行）では URL を表示
-            print(f"✅ ビューアー起動 → http://localhost:{port}/")
+            print(f"✅ ビューアー起動 → http://localhost:{actual_port}/")
             print("   ブラウザで上記URLを開いてください。")
