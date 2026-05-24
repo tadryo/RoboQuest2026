@@ -48,28 +48,37 @@ class DeterministicPolicyONNX(torch.nn.Module):
         return torch.clamp(actions, self.action_low, self.action_high)
 
 
+class NormalizedPolicyONNX(torch.nn.Module):
+    """Policy wrapper with VecNormalize baked-in (for mjswan compatibility).
+
+    mjswan passes raw (un-normalized) observations directly to the ONNX model.
+    This wrapper applies the same normalization that SB3's VecNormalize performs
+    during training, so no external stats JSON is needed at inference time.
+    """
+
+    def __init__(self, policy, obs_rms, clip_obs: float = 10.0, epsilon: float = 1e-8):
+        super().__init__()
+        self._det = DeterministicPolicyONNX(policy)
+        self.register_buffer("obs_mean", torch.as_tensor(np.asarray(obs_rms.mean), dtype=torch.float32))
+        self.register_buffer("obs_var",  torch.as_tensor(np.asarray(obs_rms.var),  dtype=torch.float32))
+        self.clip_obs = clip_obs
+        self.epsilon  = epsilon
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        norm = (obs - self.obs_mean) / torch.sqrt(self.obs_var + self.epsilon)
+        norm = torch.clamp(norm, -self.clip_obs, self.clip_obs)
+        return self._det(norm)
+
+
 def _model_zip_exists(model_path: str | Path) -> bool:
     path = Path(model_path)
     return path.exists() or path.with_suffix(".zip").exists()
 
 
-def export_policy_onnx(model_path: str | Path, output_path: str | Path) -> Path:
-    """Export an SB3 PPO policy to a deterministic-action ONNX file."""
-    from stable_baselines3 import PPO
-
-    model_path = Path(model_path)
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    print(f"Loading PPO model: {model_path}")
-    model = PPO.load(str(model_path), device="cpu")
-    model.policy.eval()
-
-    obs_dim = int(model.policy.observation_space.shape[0])
+def _onnx_export(wrapper: torch.nn.Module, obs_dim: int, output_path: Path) -> Path:
+    """Common ONNX export helper."""
     dummy_obs = torch.zeros(1, obs_dim, dtype=torch.float32)
-    wrapper = DeterministicPolicyONNX(model.policy)
-
-    export_kwargs = {
+    export_kwargs: dict = {
         "opset_version": 17,
         "input_names": ["obs"],
         "output_names": ["action"],
@@ -78,10 +87,64 @@ def export_policy_onnx(model_path: str | Path, output_path: str | Path) -> Path:
     }
     if "dynamo" in inspect.signature(torch.onnx.export).parameters:
         export_kwargs["dynamo"] = False
-
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(wrapper, dummy_obs, str(output_path), **export_kwargs)
     print(f"Exported ONNX: {output_path}")
     return output_path
+
+
+def export_policy_onnx(model_path: str | Path, output_path: str | Path) -> Path:
+    """Export an SB3 PPO policy to a deterministic-action ONNX file (raw obs input)."""
+    from stable_baselines3 import PPO
+
+    model_path = Path(model_path)
+    output_path = Path(output_path)
+
+    print(f"Loading PPO model: {model_path}")
+    model = PPO.load(str(model_path), device="cpu")
+    model.policy.eval()
+
+    obs_dim = int(model.policy.observation_space.shape[0])
+    return _onnx_export(DeterministicPolicyONNX(model.policy), obs_dim, output_path)
+
+
+def export_normalized_policy_onnx(
+    model_path: str | Path,
+    vecnorm_path: str | Path,
+    output_path: str | Path,
+) -> Path:
+    """Export SB3 PPO policy with VecNormalize baked in (for mjswan).
+
+    mjswan feeds raw observations directly into the ONNX model, so the
+    normalization stats must be embedded rather than applied externally.
+    """
+    from stable_baselines3 import PPO
+
+    model_path   = Path(model_path)
+    vecnorm_path = Path(vecnorm_path)
+    output_path  = Path(output_path)
+
+    print(f"Loading PPO model: {model_path}")
+    model = PPO.load(str(model_path), device="cpu")
+    model.policy.eval()
+
+    obs_dim = int(model.policy.observation_space.shape[0])
+
+    if vecnorm_path.exists():
+        with vecnorm_path.open("rb") as f:
+            vec_norm = pickle.load(f)
+        wrapper = NormalizedPolicyONNX(
+            model.policy,
+            vec_norm.obs_rms,
+            clip_obs=float(vec_norm.clip_obs),
+            epsilon=float(getattr(vec_norm, "epsilon", 1e-8)),
+        )
+        print(f"  VecNormalize stats embedded from {vecnorm_path}")
+    else:
+        print(f"  VecNormalize not found ({vecnorm_path}), exporting without normalization")
+        wrapper = DeterministicPolicyONNX(model.policy)
+
+    return _onnx_export(wrapper, obs_dim, output_path)
 
 
 def export_vecnorm_stats(vecnorm_path: str | Path, output_path: str | Path) -> Optional[Path]:
@@ -144,14 +207,29 @@ def export_named_policy(
     save_dir: str | Path,
     verify: bool = True,
 ) -> bool:
-    """Export one policy family. Returns False when the model is absent."""
+    """Export one policy family. Returns False when the model is absent.
+
+    Produces two ONNX files:
+      {name}_policy.onnx          — raw obs input (for custom JS viewers)
+      {name}_policy_normalized.onnx — VecNormalize embedded (for mjswan)
+    """
     if not _model_zip_exists(model_path):
         print(f"{name} model not found, skipping: {model_path}.zip")
         return False
 
     save_dir = Path(save_dir)
+
+    # Raw ONNX (obs already normalized externally)
     onnx_path = export_policy_onnx(model_path, save_dir / f"{name}_policy.onnx")
+
+    # Normalized ONNX (VecNormalize baked in — required for mjswan)
+    export_normalized_policy_onnx(
+        model_path, vecnorm_path, save_dir / f"{name}_policy_normalized.onnx"
+    )
+
+    # VecNormalize JSON (kept for reference / other viewers)
     export_vecnorm_stats(vecnorm_path, save_dir / f"{name}_vecnorm.json")
+
     if verify:
         verify_policy_export(model_path, onnx_path)
     return True
