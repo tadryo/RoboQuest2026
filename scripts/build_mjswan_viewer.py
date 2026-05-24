@@ -164,7 +164,8 @@ def build_walk(
     output_dir     = Path(output_dir)
 
     print(f"🔧 Walk ビューアーをビルド中... ({walk_onnx_path.name})")
-    spec   = mujoco.MjSpec.from_file(str(ROOT / "models" / "go2" / "walk_scene.xml"))
+    # walk_web.xml = go2_simple（メッシュなし）+ 床（ブラウザ互換）
+    spec   = mujoco.MjSpec.from_file(str(ROOT / "models" / "go2" / "walk_web.xml"))
     policy = onnx.load(str(walk_onnx_path))
 
     builder = mjswan.Builder()
