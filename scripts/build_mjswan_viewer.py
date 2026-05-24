@@ -31,13 +31,20 @@ ROOT = Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
 
-# ── 関節定義 ──────────────────────────────────────────────────────────────────
+# ── 関節 / アクチュエータ定義 ──────────────────────────────────────────────────
 # go2_simple.xml のアクチュエータ順と一致させる（訓練時の qpos 順序）
 JOINT_NAMES: list[str] = [
     "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
     "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
     "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
     "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+]
+# go2_simple.xml の <actuator> 内 motor name（joint_joint を除いた名前）
+ACTUATOR_NAMES: list[str] = [
+    "FR_hip", "FR_thigh", "FR_calf",
+    "FL_hip", "FL_thigh", "FL_calf",
+    "RR_hip", "RR_thigh", "RR_calf",
+    "RL_hip", "RL_thigh", "RL_calf",
 ]
 
 # 訓練時の STANDING_POS (JOINT_NAMES 順)
@@ -108,14 +115,19 @@ def _make_walk_obs():
 
 
 def _make_walk_action():
-    """Walk ポリシーのアクション定義（KP/KD/scale を訓練時と一致させる）。"""
+    """Walk ポリシーのアクション定義（KP/KD/scale を訓練時と一致させる）。
+
+    訓練時: q_target = STANDING_POS + action * 0.3 → PD 制御 (KP=20, KD=0.5)
+    mjswan: q_target = default_offset + action * scale（use_default_offset=True）
+    """
     from mjswan.envs.mdp.actions import JointPositionActionCfg
 
     return JointPositionActionCfg(
-        joint_names=JOINT_NAMES,
+        actuator_names=tuple(ACTUATOR_NAMES),
         scale=ACTION_SCALE,
-        stiffness={n: KP for n in JOINT_NAMES},
-        damping={n: KD for n in JOINT_NAMES},
+        stiffness=KP,
+        damping=KD,
+        use_default_offset=True,
     )
 
 
@@ -165,6 +177,7 @@ def build_walk(
             policy=policy,
             observations={"policy": _make_walk_obs()},
             actions=_make_walk_action(),
+            policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
             commands=[_make_velocity_command()],
         )
@@ -206,6 +219,7 @@ def build_flee(
             policy=policy,
             observations={"policy": _make_walk_obs()},
             actions=_make_walk_action(),
+            policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
             commands=[_make_velocity_command()],
         )
