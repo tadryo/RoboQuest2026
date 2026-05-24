@@ -50,6 +50,33 @@ KD = 0.5    # damping
 ACTION_SCALE = 0.3
 
 
+def _ensure_normalized_onnx(
+    onnx_path: Path,
+    trained_model: str = "/tmp/walk_model",
+    vecnorm: str = "/tmp/walk_model_vecnorm.pkl",
+) -> Path:
+    """normalized ONNX が無ければ学習済みモデルから自動エクスポートする。
+
+    古い学習セルで学習した場合や、再学習せずにビューアーだけ動かしたい場合に、
+    /tmp/walk_model.zip から _normalized.onnx を生成する。
+    """
+    if onnx_path.exists():
+        return onnx_path
+
+    model_zip = Path(str(trained_model) + ".zip")
+    if not (Path(trained_model).exists() or model_zip.exists()):
+        raise FileNotFoundError(
+            f"Walk ポリシーが見つかりません: {onnx_path}\n"
+            f"学習済みモデルもありません: {model_zip}\n"
+            "「🚀 歩行学習スタート！」セルを先に実行してください。"
+        )
+
+    print(f"⚙  {onnx_path.name} が無いので {model_zip.name} から自動生成します...")
+    from scripts.export_for_web import export_normalized_policy_onnx
+    export_normalized_policy_onnx(trained_model, vecnorm, onnx_path)
+    return onnx_path
+
+
 def _make_walk_obs():
     """Walk ポリシーの観測定義（45次元、訓練時の順序と完全一致）。
 
@@ -121,14 +148,8 @@ def build_walk(
     import onnx
     import mjswan
 
-    walk_onnx_path = Path(walk_onnx_path)
+    walk_onnx_path = _ensure_normalized_onnx(Path(walk_onnx_path))
     output_dir     = Path(output_dir)
-
-    if not walk_onnx_path.exists():
-        raise FileNotFoundError(
-            f"Walk ポリシーが見つかりません: {walk_onnx_path}\n"
-            "「🚀 歩行学習スタート！」セルを先に実行してください。"
-        )
 
     print(f"🔧 Walk ビューアーをビルド中... ({walk_onnx_path.name})")
     spec   = mujoco.MjSpec.from_file(str(ROOT / "models" / "go2" / "walk_scene.xml"))
@@ -167,14 +188,8 @@ def build_flee(
     import onnx
     import mjswan
 
-    walk_onnx_path = Path(walk_onnx_path)
+    walk_onnx_path = _ensure_normalized_onnx(Path(walk_onnx_path))
     output_dir     = Path(output_dir)
-
-    if not walk_onnx_path.exists():
-        raise FileNotFoundError(
-            f"Walk ポリシーが見つかりません: {walk_onnx_path}\n"
-            "「🚀 歩行学習スタート！」セルを先に実行してください。"
-        )
 
     print(f"🔧 Flee ビューアーをビルド中... ({walk_onnx_path.name})")
     # arena_web.xml = go2_simple（メッシュなし）+ 壁 + 鬼ボディ
