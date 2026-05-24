@@ -8,8 +8,10 @@ stable-baselines3>=2.3.0
 # 深層学習
 torch>=2.0.0
 numpy>=1.24.0
+onnx>=1.16.0
+onnxruntime>=1.17.0
 
-# 可視化（Colab インライン動画に必須）
+# 可視化・提出前確認
 mediapy>=1.1.0
 matplotlib>=3.7.0
 imageio>=2.31.0

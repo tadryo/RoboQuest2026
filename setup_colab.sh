@@ -17,15 +17,20 @@ else
 fi
 
 # 2. 依存ライブラリのインストール
-echo "[2/4] ライブラリをインストール中..."
-pip install -q mujoco gymnasium stable-baselines3 mediapy tqdm pandas matplotlib imageio imageio-ffmpeg
+echo "[2/5] ライブラリをインストール中..."
+pip install -q mujoco gymnasium "stable-baselines3[extra]" mediapy tqdm pandas matplotlib \
+  imageio imageio-ffmpeg onnx onnxruntime
 
 # 3. Go2 モデルファイルのダウンロード
-echo "[3/4] Go2 モデルをダウンロード中..."
+echo "[3/5] Go2 モデルをダウンロード中..."
 python scripts/download_models.py
 
-# 4. パッケージのインストール
-echo "[4/4] roboquest パッケージをインストール中..."
+# 4. ブラウザビューアー用 vendor assets
+echo "[4/5] Web ビューアー assets を準備中..."
+python scripts/setup_web_vendor.py
+
+# 5. パッケージのインストール
+echo "[5/5] roboquest パッケージをインストール中..."
 pip install -q -e .
 
 echo ""

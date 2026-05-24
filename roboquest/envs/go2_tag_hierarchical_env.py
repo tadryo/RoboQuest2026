@@ -16,8 +16,7 @@
     # あとは通常の Gymnasium 環境と同じ
 """
 import os
-if "MUJOCO_GL" not in os.environ:
-    os.environ["MUJOCO_GL"] = "egl"
+import pickle
 
 from typing import Optional, List
 
@@ -60,6 +59,7 @@ class Go2TagHierarchicalEnv(gym.Env):
     def __init__(
         self,
         low_level_model_path: str,
+        low_level_vecnorm_path: Optional[str] = None,
         flee_config: Optional[FleeRewardConfig] = None,
         oni_speed: float = 0.025,
         max_episode_steps: int = MAX_EPISODE_STEPS // N_LOW_STEPS,
@@ -88,6 +88,10 @@ class Go2TagHierarchicalEnv(gym.Env):
         # 低レベルポリシー読み込み
         from stable_baselines3 import PPO
         self._low_policy = PPO.load(low_level_model_path)
+        self._low_obs_rms = None
+        self._low_clip_obs = 10.0
+        self._low_epsilon = 1e-8
+        self._load_low_vecnorm(low_level_model_path, low_level_vecnorm_path)
 
         # 高レベル観測・行動空間
         # 観測: [rel_dx, rel_dy, dist, ang_vel(3), proj_grav(3), time_left]
@@ -141,6 +145,7 @@ class Go2TagHierarchicalEnv(gym.Env):
 
         for _ in range(self.n_low_steps):
             low_obs = self._low_env._get_obs().astype(np.float32)
+            low_obs = self._normalize_low_obs(low_obs)
             low_action, _ = self._low_policy.predict(low_obs, deterministic=True)
             _, _, low_term, _, _ = self._low_env.step(low_action)
 
@@ -218,6 +223,35 @@ class Go2TagHierarchicalEnv(gym.Env):
         return frames
 
     # ── 内部メソッド ─────────────────────────────────────────────────────
+
+    def _load_low_vecnorm(
+        self,
+        low_level_model_path: str,
+        low_level_vecnorm_path: Optional[str],
+    ) -> None:
+        """Load walk-policy VecNormalize stats when available."""
+        candidates = []
+        if low_level_vecnorm_path:
+            candidates.append(low_level_vecnorm_path)
+        candidates.append(low_level_model_path + "_vecnorm.pkl")
+
+        for path in candidates:
+            if not path or not os.path.exists(path):
+                continue
+            with open(path, "rb") as f:
+                vec_norm = pickle.load(f)
+            self._low_obs_rms = vec_norm.obs_rms
+            self._low_clip_obs = float(getattr(vec_norm, "clip_obs", 10.0))
+            self._low_epsilon = float(getattr(vec_norm, "epsilon", 1e-8))
+            return
+
+    def _normalize_low_obs(self, obs: np.ndarray) -> np.ndarray:
+        if self._low_obs_rms is None:
+            return obs
+        obs = (obs - self._low_obs_rms.mean) / np.sqrt(
+            self._low_obs_rms.var + self._low_epsilon
+        )
+        return np.clip(obs, -self._low_clip_obs, self._low_clip_obs).astype(np.float32)
 
     def _get_high_obs(self) -> np.ndarray:
         robot_xy = self._low_env.robot_xy

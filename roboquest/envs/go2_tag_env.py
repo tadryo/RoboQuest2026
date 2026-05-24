@@ -18,8 +18,6 @@
 観測空間: 45 + 3 = 48 次元
 """
 import os
-if "MUJOCO_GL" not in os.environ:
-    os.environ["MUJOCO_GL"] = "egl"
 
 from typing import Optional, List
 

@@ -11,8 +11,6 @@ unitree_rl_mjlab の velocity task を参考にした報酬設計:
 行動空間: 12次元（正規化された目標関節角度オフセット [-1, 1]）
 """
 import os
-if "MUJOCO_GL" not in os.environ:
-    os.environ["MUJOCO_GL"] = "egl"
 
 from typing import Optional
 

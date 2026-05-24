@@ -35,8 +35,9 @@ best/
 # Claude Code 設定（ローカル専用）
 .claude/
 
-# Web viewer — mujoco_wasm バイナリは setup_wasm.sh でダウンロード
+# Web viewer — JS/WASM assets は scripts/setup_web_vendor.py でダウンロード
 webapp/dist/
+webapp/vendor/
 # エクスポート済みポリシー（チームごと）
 webapp/models/
 
