@@ -32,14 +32,16 @@ os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
 
 # ── 関節 / アクチュエータ定義 ──────────────────────────────────────────────────
-# go2_simple.xml のアクチュエータ順と一致させる（訓練時の qpos 順序）
+# go2_posctrl.xml のアクチュエータ順と一致させる（訓練時の obs/action 順序）
 JOINT_NAMES: list[str] = [
     "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
     "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
     "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
     "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
 ]
-# go2_simple.xml の <actuator> 内 motor name（joint_joint を除いた名前）
+# go2_posctrl.xml の <position> アクチュエータ名（JOINT_NAMES と同順）。
+# mjswan の joint_position アクションは関節名でマッチするため直接は使わないが、
+# 訓練側（アクチュエータ順の obs/action）との対応を示すために残す。
 ACTUATOR_NAMES: list[str] = [
     "FR_hip", "FR_thigh", "FR_calf",
     "FL_hip", "FL_thigh", "FL_calf",
@@ -55,6 +57,9 @@ STANDING_POS: dict[str, float] = dict(zip(JOINT_NAMES, _STANDING_VALUES))
 KP = 20.0   # stiffness
 KD = 0.5    # damping
 ACTION_SCALE = 0.3
+
+# add_policy の commands キー / generated_commands の command_name
+VELOCITY_COMMAND_NAME = "velocity"
 
 
 def _ensure_normalized_onnx(
@@ -105,7 +110,12 @@ def _make_walk_obs():
     )
 
     return ObservationGroupCfg(terms={
-        "vel_cmd":           ObservationTermCfg(func=generated_commands),    # 3
+        # generated_commands は params で command 名を指定する必要がある
+        # （add_policy の commands={"velocity": ...} のキーと一致させる）
+        "vel_cmd":           ObservationTermCfg(
+            func=generated_commands,
+            params={"command_name": VELOCITY_COMMAND_NAME},
+        ),                                                               # 3
         "ang_vel":           ObservationTermCfg(func=base_ang_vel),          # 3
         "projected_gravity": ObservationTermCfg(func=projected_gravity),     # 3
         "joint_pos":         ObservationTermCfg(func=joint_pos_rel),         # 12
@@ -122,8 +132,13 @@ def _make_walk_action():
     """
     from mjswan.envs.mdp.actions import JointPositionActionCfg
 
+    # 注意: type="joint_position" の場合、mjswan のブラウザ実行時は
+    # actuator_names を *policy_joint_names（= 関節名）* に対して正規表現マッチする
+    # （アクチュエータ名でマッチするのは muscle_activation のみ）。
+    # ここに <actuator> 名（FR_hip 等）を渡すと 1つもマッチせず
+    # 「no joints matched patterns」で action term ごと無視され、ロボットが動かない。
     return JointPositionActionCfg(
-        actuator_names=tuple(ACTUATOR_NAMES),
+        actuator_names=tuple(JOINT_NAMES),
         scale=ACTION_SCALE,
         stiffness=KP,
         damping=KD,
@@ -143,6 +158,20 @@ def _make_velocity_command():
         default_lin_vel_y=0.0,
         default_ang_vel_z=0.0,
     )
+
+
+def _select_reset_keyframe(spec, keep: str) -> None:
+    """`keep` 以外の keyframe を削除して、それを keyframe 0 にする。
+
+    mjswan のブラウザランタイムはリセット時に必ず keyframe 0
+    （mj_resetDataKeyframe(..., 0)）を使う。arena_web.xml は
+    go2_posctrl.xml の "home"（鬼の座標を含まない）を include するため、
+    そのままだと "home" が index 0 になり arena_home が無視されて
+    鬼がロボットと同じ原点に出てしまう。
+    """
+    for key in list(spec.keys):
+        if key.name != keep:
+            spec.delete(key)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -180,7 +209,7 @@ def build_walk(
             actions={"joint_pos": _make_walk_action()},
             policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
-            commands={"velocity": _make_velocity_command()},
+            commands={VELOCITY_COMMAND_NAME: _make_velocity_command()},
         )
     )
 
@@ -208,6 +237,8 @@ def build_flee(
     print(f"🔧 Flee ビューアーをビルド中... ({walk_onnx_path.name})")
     # arena_web.xml = go2_simple（メッシュなし）+ 壁 + 鬼ボディ
     spec   = mujoco.MjSpec.from_file(str(ROOT / "models" / "go2" / "arena_web.xml"))
+    # ブラウザ側は keyframe 0 でリセットするので arena_home を先頭に持ってくる
+    _select_reset_keyframe(spec, keep="arena_home")
     policy = onnx.load(str(walk_onnx_path))
 
     builder = mjswan.Builder()
@@ -222,7 +253,7 @@ def build_flee(
             actions={"joint_pos": _make_walk_action()},
             policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
-            commands={"velocity": _make_velocity_command()},
+            commands={VELOCITY_COMMAND_NAME: _make_velocity_command()},
         )
     )
 

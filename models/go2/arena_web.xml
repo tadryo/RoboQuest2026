@@ -4,6 +4,10 @@
 
   <statistic center="0 0 0.3" extent="4"/>
 
+  <asset>
+    <material name="oni_mat" rgba="0.95 0.12 0.12 1"/>
+  </asset>
+
   <worldbody>
     <!-- 5m×5m フロア -->
     <geom name="floor" type="plane" size="2.5 2.5 0.1"
@@ -29,15 +33,21 @@
         limited="true" range="-2.4 2.4" damping="100" frictionloss="0"/>
       <joint name="oni_y" type="slide" axis="0 1 0"
         limited="true" range="-2.4 2.4" damping="100" frictionloss="0"/>
-      <geom name="oni_body" type="sphere" size="0.28"
+      <geom name="oni_body" type="sphere" size="0.28" material="oni_mat"
         contype="0" conaffinity="0" mass="0.001"/>
+      <!-- 鬼の方向インジケーター（目のような突起） -->
+      <geom name="oni_eye" type="sphere" size="0.08" pos="0.25 0 0.1"
+        rgba="1 1 1 1" contype="0" conaffinity="0" mass="0"/>
     </body>
   </worldbody>
 
-  <!-- Keyframe: robot home pose + oni at origin (go2.xml の "home" に oni 座標を追加) -->
+  <!-- Keyframe: robot home pose + 鬼の初期位置（go2.xml の "home" に oni 座標を追加）。
+       鬼を原点に置くとロボットと重なって表示されるため、学習側
+       Go2TagHierarchicalEnv.reset と同じく 1.5m 以上離した位置に置く。
+       qpos[19]=oni_x=1.6, qpos[20]=oni_y=1.6（原点から約 2.26m）。 -->
   <keyframe>
     <key name="arena_home"
-      qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0"
+      qpos="0 0 0.27 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 1.6 1.6"
       ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8" />
   </keyframe>
 </mujoco>
