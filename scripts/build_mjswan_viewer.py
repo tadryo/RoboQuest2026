@@ -2,7 +2,7 @@
 build_mjswan_viewer.py — mjswan を使って RoboQuest 2026 のブラウザビューアーをビルドする。
 
 使い方（Colab セルから）:
-    from scripts.build_mjswan_viewer import build_walk, build_flee
+    from scripts.build_mjswan_viewer import build_walk, build_flee, launch_viewer
     import mjswan
 
     # Walk ビューアー（学習済みポリシーで自律歩行）
@@ -10,14 +10,14 @@ build_mjswan_viewer.py — mjswan を使って RoboQuest 2026 のブラウザビ
         walk_onnx_path='webapp/models/walk_policy_normalized.onnx',
         output_dir='/tmp/rq_walk_dist',
     )
-    app.launch(height=620)
+    launch_viewer(app, height=620)
 
     # Flee ビューアー（アリーナ + スライダー手動操作）
     app = build_flee(
         walk_onnx_path='webapp/models/walk_policy_normalized.onnx',
         output_dir='/tmp/rq_flee_dist',
     )
-    app.launch(height=620)
+    launch_viewer(app, height=620)
 """
 from __future__ import annotations
 
@@ -186,6 +186,43 @@ def _select_reset_keyframe(spec, keep: str) -> None:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+def launch_viewer(app, height: int = 620, port: Optional[int] = None) -> None:
+    """ビューアーを起動して Colab のセル内に表示し、直リンクも出す。
+
+    `app.launch()` は Colab を検出すると `serve_kernel_port_as_iframe` で
+    セル内に iframe を埋め込むが、この iframe はスマートフォン（特に iOS
+    Safari）やクロスサイト Cookie / ストレージをブロックしているブラウザだと
+    真っ白なまま何も表示されないことがある。そこで同じサーバーを別タブで
+    開ける URL も併せて出力する（別タブなら iframe の制約を受けず、使える
+    メモリも増えるため、表示できる可能性が上がる）。
+
+    ビューアーは WebGL2 + WebAssembly をそれなりのメモリで動かすので、
+    PC の Chrome を推奨。
+    """
+    import socket
+
+    if port is None:
+        # 空きポートを先に確保して、proxyPort に渡すポート番号を確定させる
+        # （mjswan は使用中なら +1 していくので、番号が分からなくなる）。
+        with socket.socket() as _s:
+            _s.bind(("", 0))
+            port = _s.getsockname()[1]
+
+    app.launch(port=port, height=height)
+
+    try:
+        from google.colab import output  # type: ignore[import]
+
+        url = output.eval_js(f"google.colab.kernel.proxyPort({port})")
+    except Exception:
+        return
+
+    print()
+    print("📱 上に何も表示されない場合は、次の URL を別タブで開いてください:")
+    print(f"   {url}")
+    print("   （スマホでは表示できないことがあります。PC の Chrome を推奨します）")
+
 
 def build_walk(
     walk_onnx_path: str | Path = "webapp/models/walk_policy_normalized.onnx",
