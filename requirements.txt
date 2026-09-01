@@ -14,8 +14,13 @@ onnxruntime>=1.17.0
 
 # ブラウザビューアー（Colab インライン表示）
 # 0.9 系は観測関数が mjlab へ移動し、その mjlab とは mujoco の pin が衝突して
-# 同居できないため 0.8.2 に固定する。Python 3.10〜3.12 のみ対応。
-mjswan==0.8.2
+# 同居できないため 0.8.2 に固定する。
+# mjswan の wheel は Requires-Python が <3.13 と宣言されているが、中身は純 Python +
+# ビルド済みフロントエンドで、依存（mujoco==3.8.1 / onnx）にも cp313 wheel があるため
+# Python 3.13 でも動作する。3.13 では pip が候補から外してしまうので、
+#   pip install --ignore-requires-python "mjswan==0.8.2"
+# のように別途インストールすること（setup_colab.sh とノートブックは自動で行う）。
+mjswan==0.8.2; python_version < "3.13"
 
 # 可視化・提出前確認
 mediapy>=1.1.0
