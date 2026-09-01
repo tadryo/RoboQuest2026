@@ -17,21 +17,22 @@ else
 fi
 
 # 2. 依存ライブラリのインストール
-echo "[2/5] ライブラリをインストール中..."
-pip install -q mujoco gymnasium "stable-baselines3[extra]" mediapy tqdm pandas matplotlib \
-  imageio imageio-ffmpeg onnx onnxruntime
+echo "[2/4] ライブラリをインストール中..."
+# mjswan==0.8.2 固定（0.9 系は API 破壊 + mjlab との mujoco pin 衝突）。
+# mujoco は mjswan の pin（==3.8.1）に従うのでここでは指定しない。
+pip install -q gymnasium "stable-baselines3[extra]" mediapy tqdm pandas matplotlib \
+  imageio imageio-ffmpeg "onnx>=1.20.0" onnxruntime "mjswan==0.8.2"
 
 # 3. Go2 モデルファイルのダウンロード
-echo "[3/5] Go2 モデルをダウンロード中..."
+echo "[3/4] Go2 モデルをダウンロード中..."
 python scripts/download_models.py
 
-# 4. ブラウザビューアー用 vendor assets
-echo "[4/5] Web ビューアー assets を準備中..."
-python scripts/setup_web_vendor.py
-
-# 5. パッケージのインストール
-echo "[5/5] roboquest パッケージをインストール中..."
+# 4. パッケージのインストール
+echo "[4/4] roboquest パッケージをインストール中..."
 pip install -q -e .
+
+# ブラウザビューアーは mjswan がノートブック内でビルドする（vendor assets 不要）。
+# mjswan 0.8.2 の wheel はビルド済み dist を同梱しているので Node は不要。
 
 echo ""
 echo "✅ セットアップ完了！ノートブックを実行できます。"

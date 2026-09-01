@@ -1,4 +1,5 @@
 # MuJoCo 物理シミュレーター
+# ※ mjswan==0.8.2 が mujoco==3.8.1 を pin するため、実際は 3.8.1 が入る
 mujoco>=3.1.0
 
 # 強化学習
@@ -8,8 +9,13 @@ stable-baselines3>=2.3.0
 # 深層学習
 torch>=2.0.0
 numpy>=1.24.0
-onnx>=1.16.0
+onnx>=1.20.0  # mjswan 0.8.2 の要求下限
 onnxruntime>=1.17.0
+
+# ブラウザビューアー（Colab インライン表示）
+# 0.9 系は観測関数が mjlab へ移動し、その mjlab とは mujoco の pin が衝突して
+# 同居できないため 0.8.2 に固定する。Python 3.10〜3.12 のみ対応。
+mjswan==0.8.2
 
 # 可視化・提出前確認
 mediapy>=1.1.0

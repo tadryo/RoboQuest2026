@@ -12,7 +12,7 @@ build_mjswan_viewer.py — mjswan を使って RoboQuest 2026 のブラウザビ
     )
     app.launch(height=620)
 
-    # Flee ビューアー（アリーナ + 手動 WASD 操作）
+    # Flee ビューアー（アリーナ + スライダー手動操作）
     app = build_flee(
         walk_onnx_path='webapp/models/walk_policy_normalized.onnx',
         output_dir='/tmp/rq_flee_dist',
@@ -32,14 +32,16 @@ os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
 
 # ── 関節 / アクチュエータ定義 ──────────────────────────────────────────────────
-# go2_simple.xml のアクチュエータ順と一致させる（訓練時の qpos 順序）
+# go2_posctrl.xml のアクチュエータ順と一致させる（訓練時の obs/action 順序）
 JOINT_NAMES: list[str] = [
     "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
     "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
     "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
     "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
 ]
-# go2_simple.xml の <actuator> 内 motor name（joint_joint を除いた名前）
+# go2_posctrl.xml の <position> アクチュエータ名（JOINT_NAMES と同順）。
+# mjswan の joint_position アクションは関節名でマッチするため直接は使わないが、
+# 訓練側（アクチュエータ順の obs/action）との対応を示すために残す。
 ACTUATOR_NAMES: list[str] = [
     "FR_hip", "FR_thigh", "FR_calf",
     "FL_hip", "FL_thigh", "FL_calf",
@@ -49,12 +51,22 @@ ACTUATOR_NAMES: list[str] = [
 
 # 訓練時の STANDING_POS (JOINT_NAMES 順)
 _STANDING_VALUES = [0, 0.9, -1.8] * 4  # FR/FL/RR/RL × hip/thigh/calf
-STANDING_POS: dict[str, float] = dict(zip(JOINT_NAMES, _STANDING_VALUES))
+# add_policy(default_joint_pos=) には *リスト* を渡すこと（policy_joint_names と同順）。
+# ブラウザ側の PolicyRunner.normalizeArray は values[i] と添字アクセスするため、
+# dict を渡すと全要素 undefined → 0.0 にフォールバックし、
+# use_default_offset=True でも q_target = 0 + action*0.3 になって
+# ロボットが脚を伸ばしたまま潰れる（Python 側は素通しなのでエラーは出ない）。
+STANDING_POS: list[float] = list(_STANDING_VALUES)
+# 参照用（人間が読む / 対応確認する用）の関節名→角度マップ
+STANDING_POS_BY_JOINT: dict[str, float] = dict(zip(JOINT_NAMES, _STANDING_VALUES))
 
 # PD ゲイン（訓練と完全一致させる）
 KP = 20.0   # stiffness
 KD = 0.5    # damping
 ACTION_SCALE = 0.3
+
+# add_policy の commands キー / generated_commands の command_name
+VELOCITY_COMMAND_NAME = "velocity"
 
 
 def _ensure_normalized_onnx(
@@ -105,7 +117,12 @@ def _make_walk_obs():
     )
 
     return ObservationGroupCfg(terms={
-        "vel_cmd":           ObservationTermCfg(func=generated_commands),    # 3
+        # generated_commands は params で command 名を指定する必要がある
+        # （add_policy の commands={"velocity": ...} のキーと一致させる）
+        "vel_cmd":           ObservationTermCfg(
+            func=generated_commands,
+            params={"command_name": VELOCITY_COMMAND_NAME},
+        ),                                                               # 3
         "ang_vel":           ObservationTermCfg(func=base_ang_vel),          # 3
         "projected_gravity": ObservationTermCfg(func=projected_gravity),     # 3
         "joint_pos":         ObservationTermCfg(func=joint_pos_rel),         # 12
@@ -122,8 +139,13 @@ def _make_walk_action():
     """
     from mjswan.envs.mdp.actions import JointPositionActionCfg
 
+    # 注意: type="joint_position" の場合、mjswan のブラウザ実行時は
+    # actuator_names を *policy_joint_names（= 関節名）* に対して正規表現マッチする
+    # （アクチュエータ名でマッチするのは muscle_activation のみ）。
+    # ここに <actuator> 名（FR_hip 等）を渡すと 1つもマッチせず
+    # 「no joints matched patterns」で action term ごと無視され、ロボットが動かない。
     return JointPositionActionCfg(
-        actuator_names=tuple(ACTUATOR_NAMES),
+        actuator_names=tuple(JOINT_NAMES),
         scale=ACTION_SCALE,
         stiffness=KP,
         damping=KD,
@@ -132,7 +154,11 @@ def _make_walk_action():
 
 
 def _make_velocity_command():
-    """WASD キーボード / UI スライダーによる速度コマンド設定。"""
+    """コントロールパネルのスライダーによる速度コマンド設定。
+
+    mjswan 0.8.2 のキーバインドは `c`（パネル開閉）と `r`（リセット）だけで、
+    WASD による操作は存在しない。速度コマンドはスライダーで与える。
+    """
     from mjswan import velocity_command
 
     return velocity_command(
@@ -145,6 +171,20 @@ def _make_velocity_command():
     )
 
 
+def _select_reset_keyframe(spec, keep: str) -> None:
+    """`keep` 以外の keyframe を削除して、それを keyframe 0 にする。
+
+    mjswan のブラウザランタイムはリセット時に必ず keyframe 0
+    （mj_resetDataKeyframe(..., 0)）を使う。arena_web.xml は
+    go2_posctrl.xml の "home"（鬼の座標を含まない）を include するため、
+    そのままだと "home" が index 0 になり arena_home が無視されて
+    鬼がロボットと同じ原点に出てしまう。
+    """
+    for key in list(spec.keys):
+        if key.name != keep:
+            spec.delete(key)
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def build_walk(
@@ -153,7 +193,7 @@ def build_walk(
 ) -> "mjswan.mjswanApp":
     """Walk ビューアーをビルドして mjswanApp を返す。
 
-    学習済み Walk ポリシー（WASD で速度コマンドを与えると歩く）。
+    学習済み Walk ポリシー（スライダーで速度コマンドを与えると歩く）。
     VecNormalize が埋め込まれた _normalized.onnx を必ず渡すこと。
     """
     import mujoco
@@ -180,7 +220,7 @@ def build_walk(
             actions={"joint_pos": _make_walk_action()},
             policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
-            commands={"velocity": _make_velocity_command()},
+            commands={VELOCITY_COMMAND_NAME: _make_velocity_command()},
         )
     )
 
@@ -195,7 +235,7 @@ def build_flee(
 ) -> "mjswan.mjswanApp":
     """Flee（鬼ごっこ）ビューアーをビルドして mjswanApp を返す。
 
-    アリーナ（壁 + 鬼ボディ）を表示し、Walk ポリシーで WASD 手動操作する。
+    アリーナ（壁 + 鬼ボディ）を表示し、Walk ポリシーをスライダーで手動操作する。
     ※ 高レベル Flee ポリシーの統合は将来実装予定。
     """
     import mujoco
@@ -208,6 +248,8 @@ def build_flee(
     print(f"🔧 Flee ビューアーをビルド中... ({walk_onnx_path.name})")
     # arena_web.xml = go2_simple（メッシュなし）+ 壁 + 鬼ボディ
     spec   = mujoco.MjSpec.from_file(str(ROOT / "models" / "go2" / "arena_web.xml"))
+    # ブラウザ側は keyframe 0 でリセットするので arena_home を先頭に持ってくる
+    _select_reset_keyframe(spec, keep="arena_home")
     policy = onnx.load(str(walk_onnx_path))
 
     builder = mjswan.Builder()
@@ -215,6 +257,15 @@ def build_flee(
         builder
         .add_project(name="RoboQuest 2026 — 鬼ごっこビューアー")
         .add_scene(name="Go2 vs Oni", spec=spec)
+        # 既定カメラだとアリーナの内側（鬼のすぐ隣）から始まって何も見えないので、
+        # 5m×5m のアリーナ全体が入る位置に固定する。
+        .set_viewer(mjswan.ViewerConfig(
+            lookat=(0.0, 0.0, 0.3),
+            distance=7.0,
+            elevation=-28.0,
+            azimuth=-120.0,
+            origin_type=mjswan.ViewerConfig.OriginType.WORLD,
+        ))
         .add_policy(
             name="Walk Policy (Manual)",
             policy=policy,
@@ -222,7 +273,7 @@ def build_flee(
             actions={"joint_pos": _make_walk_action()},
             policy_joint_names=JOINT_NAMES,
             default_joint_pos=STANDING_POS,
-            commands={"velocity": _make_velocity_command()},
+            commands={VELOCITY_COMMAND_NAME: _make_velocity_command()},
         )
     )
 
