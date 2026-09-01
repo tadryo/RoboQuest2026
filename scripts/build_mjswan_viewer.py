@@ -12,7 +12,7 @@ build_mjswan_viewer.py — mjswan を使って RoboQuest 2026 のブラウザビ
     )
     app.launch(height=620)
 
-    # Flee ビューアー（アリーナ + 手動 WASD 操作）
+    # Flee ビューアー（アリーナ + スライダー手動操作）
     app = build_flee(
         walk_onnx_path='webapp/models/walk_policy_normalized.onnx',
         output_dir='/tmp/rq_flee_dist',
@@ -154,7 +154,11 @@ def _make_walk_action():
 
 
 def _make_velocity_command():
-    """WASD キーボード / UI スライダーによる速度コマンド設定。"""
+    """コントロールパネルのスライダーによる速度コマンド設定。
+
+    mjswan 0.8.2 のキーバインドは `c`（パネル開閉）と `r`（リセット）だけで、
+    WASD による操作は存在しない。速度コマンドはスライダーで与える。
+    """
     from mjswan import velocity_command
 
     return velocity_command(
@@ -189,7 +193,7 @@ def build_walk(
 ) -> "mjswan.mjswanApp":
     """Walk ビューアーをビルドして mjswanApp を返す。
 
-    学習済み Walk ポリシー（WASD で速度コマンドを与えると歩く）。
+    学習済み Walk ポリシー（スライダーで速度コマンドを与えると歩く）。
     VecNormalize が埋め込まれた _normalized.onnx を必ず渡すこと。
     """
     import mujoco
@@ -231,7 +235,7 @@ def build_flee(
 ) -> "mjswan.mjswanApp":
     """Flee（鬼ごっこ）ビューアーをビルドして mjswanApp を返す。
 
-    アリーナ（壁 + 鬼ボディ）を表示し、Walk ポリシーで WASD 手動操作する。
+    アリーナ（壁 + 鬼ボディ）を表示し、Walk ポリシーをスライダーで手動操作する。
     ※ 高レベル Flee ポリシーの統合は将来実装予定。
     """
     import mujoco
