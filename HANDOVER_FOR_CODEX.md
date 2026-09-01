@@ -151,6 +151,39 @@ git clone https://github.com/SingularityBattleQuest/RoboQuest2026.git /content/R
 python scripts/download_models.py
 ```
 
+### 4.1 mjswan on Colab's Python 3.13
+
+Colab now runs **Python 3.13**, and *every* published `mjswan` release (0.0.9 … 0.9.3)
+declares `Requires-Python: <3.13,>=3.10`. pip therefore refuses to install it and the
+whole setup cell used to die with `CalledProcessError` — students could not even train,
+not just view.
+
+The version cap is metadata only: mjswan 0.8.2 is pure Python plus a prebuilt frontend
+bundle, and its dependencies (`mujoco==3.8.1`, `onnx`, `wandb`, `typer`, `rich`,
+`nodeenv`) all ship cp313 wheels. Verified on Python 3.13: install, `import mjswan`, and
+`build_walk()` / `build_flee()` (including the vite frontend build) all succeed.
+
+So mjswan is installed **separately from the other libraries**, with the cap ignored on
+3.13:
+
+```python
+flags = ['--ignore-requires-python'] if sys.version_info >= (3, 13) else []
+subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *flags, 'mjswan==0.8.2'])
+```
+
+Rules to keep:
+
+* Keep the mjswan install in its **own** pip invocation — `--ignore-requires-python`
+  applies to the whole resolution, so it must not leak into the other packages.
+* Never make that install `check=True` at setup time. A mjswan failure must degrade to
+  "viewer cells unavailable", never break training. The viewer cells re-install it
+  themselves (`importlib.util.find_spec('mjswan') is None`) so they still work after a
+  runtime restart.
+* `setup.py` / `requirements.txt` carry the marker `mjswan==0.8.2; python_version < "3.13"`
+  so `pip install -e .` and `pip install -r requirements.txt` do not fail on 3.13.
+* Still pinned to 0.8.2: 0.9.x moved the observation functions into `mjlab`, whose
+  `mujoco` pin conflicts with mjswan's.
+
 ---
 
 ## 5. Viewer Cells (cell[7] and cell[12])
@@ -257,11 +290,13 @@ Add `GET /ping` to Flask that returns `text/plain` "pong". Tell user to open `pr
 ## 10. Dependencies
 
 ```
-mujoco>=3.0
+mujoco>=3.0            # mjswan 0.8.2 pins it to ==3.8.1 in practice
 gymnasium>=0.29
 stable-baselines3[extra]>=2.0
-flask>=3.0
-Pillow>=10.0
+onnx>=1.20.0
+onnxruntime>=1.17.0
+mediapy, tqdm, pandas, matplotlib
+mjswan==0.8.2          # browser viewer; see §4.1 for the Python 3.13 install rule
 numpy
 ```
 
