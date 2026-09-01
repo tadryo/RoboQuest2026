@@ -51,7 +51,14 @@ ACTUATOR_NAMES: list[str] = [
 
 # 訓練時の STANDING_POS (JOINT_NAMES 順)
 _STANDING_VALUES = [0, 0.9, -1.8] * 4  # FR/FL/RR/RL × hip/thigh/calf
-STANDING_POS: dict[str, float] = dict(zip(JOINT_NAMES, _STANDING_VALUES))
+# add_policy(default_joint_pos=) には *リスト* を渡すこと（policy_joint_names と同順）。
+# ブラウザ側の PolicyRunner.normalizeArray は values[i] と添字アクセスするため、
+# dict を渡すと全要素 undefined → 0.0 にフォールバックし、
+# use_default_offset=True でも q_target = 0 + action*0.3 になって
+# ロボットが脚を伸ばしたまま潰れる（Python 側は素通しなのでエラーは出ない）。
+STANDING_POS: list[float] = list(_STANDING_VALUES)
+# 参照用（人間が読む / 対応確認する用）の関節名→角度マップ
+STANDING_POS_BY_JOINT: dict[str, float] = dict(zip(JOINT_NAMES, _STANDING_VALUES))
 
 # PD ゲイン（訓練と完全一致させる）
 KP = 20.0   # stiffness
@@ -246,6 +253,15 @@ def build_flee(
         builder
         .add_project(name="RoboQuest 2026 — 鬼ごっこビューアー")
         .add_scene(name="Go2 vs Oni", spec=spec)
+        # 既定カメラだとアリーナの内側（鬼のすぐ隣）から始まって何も見えないので、
+        # 5m×5m のアリーナ全体が入る位置に固定する。
+        .set_viewer(mjswan.ViewerConfig(
+            lookat=(0.0, 0.0, 0.3),
+            distance=7.0,
+            elevation=-28.0,
+            azimuth=-120.0,
+            origin_type=mjswan.ViewerConfig.OriginType.WORLD,
+        ))
         .add_policy(
             name="Walk Policy (Manual)",
             policy=policy,
