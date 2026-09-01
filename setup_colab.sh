@@ -9,7 +9,7 @@ echo "=== RoboQuest2026 セットアップ ==="
 # 1. リポジトリのクローン（まだの場合）
 if [ ! -d "RoboQuest2026" ]; then
   echo "[1/4] リポジトリをクローン..."
-  git clone https://github.com/tadryo/RoboQuest2026.git
+  git clone https://github.com/SingularityBattleQuest/RoboQuest2026.git
   cd RoboQuest2026
 else
   cd RoboQuest2026

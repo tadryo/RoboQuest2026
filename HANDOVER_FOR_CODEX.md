@@ -1,7 +1,7 @@
 # RoboQuest 2026 — Handover Document for Codex
 
 **Project:** RoboQuest 2026  
-**Repo:** https://github.com/tadryo/RoboQuest2026  
+**Repo:** https://github.com/SingularityBattleQuest/RoboQuest2026  
 **Purpose:** RL teaching environment for Japanese high school students  
 **Date:** 2026-05-24  
 **Prepared by:** Claude Sonnet 4.6
@@ -147,7 +147,7 @@ else:
     os.environ['MUJOCO_GL'] = 'osmesa'
 
 pip install: mujoco gymnasium stable-baselines3[extra] flask Pillow mediapy tqdm
-git clone https://github.com/tadryo/RoboQuest2026.git /content/RoboQuest2026
+git clone https://github.com/SingularityBattleQuest/RoboQuest2026.git /content/RoboQuest2026
 python scripts/download_models.py
 ```
 
